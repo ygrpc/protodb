@@ -30,6 +30,10 @@ message PDBMsg {
   // sql appends after ;
   repeated string SQLAppendsEnd = 5;
 
+  // no msg list
+  // prevent generate proto msg {{msg}}List in  xxx.list.proto
+  bool NoMsgList = 6;
+
 }
 
 message PDBField {
@@ -61,6 +65,10 @@ message PDBField {
   // db no update
   // when in update, do not update this field, for example, create time
   bool NoUpdate = 9;
+
+  // serial type 0:not serial type 1:smallint 4:int 8:bigint
+  // strong advice not use serial type,it's hard in distributed system
+  int32 SerialType = 10;
 }
 
 extend google.protobuf.FileOptions { optional PDBFile pdbf = 1888; }
