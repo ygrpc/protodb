@@ -30,9 +30,11 @@ message PDBMsg {
   // sql appends after ;
   repeated string SQLAppendsEnd = 5;
 
-  // no msg list
-  // prevent generate proto msg {{msg}}List in  xxx.list.proto
-  bool NoMsgList = 6;
+  // generate proto msg {{msg}}List in  xxx.list.proto
+  // 0: auto if msg name start with db then generate {{msg}}List
+  // 1: always generate {{msg}}List
+  // 4: never generate {{msg}}List
+  int32 MsgList = 6;
 
 }
 
