@@ -44,10 +44,10 @@ message PDBField {
   bool NotDB = 1;
 
   // is primary key
-  bool IsPrimaryKey = 2;
+  bool IsPrimary = 2;
 
   // is unique key
-  bool IsUniqueKey = 3;
+  bool IsUnique = 3;
 
   // is not null
   bool IsNotNull = 4;
