@@ -16,13 +16,13 @@ message PDBFile {
 message PDBMsg {
   // when table primary key include more than one field,need specify the primary
   // key in pdbmsg
-  repeated string PrimaryKeys = 1;
+  repeated string Primary = 1;
 
   // sql prepends before create table
-  repeated string SQLPrepends = 2;
+  repeated string SQLPrepend = 2;
 
   // sql appends before )
-  repeated string SQLAppends = 3;
+  repeated string SQLAppend = 3;
 
   // sql appends after ) before ;
   repeated string SQLAppendsAfter = 4;
@@ -44,13 +44,13 @@ message PDBField {
   bool NotDB = 1;
 
   // is primary key
-  bool IsPrimary = 2;
+  bool Primary = 2;
 
   // is unique key
-  bool IsUnique = 3;
+  bool Unique = 3;
 
   // is not null
-  bool IsNotNull = 4;
+  bool NotNull = 4;
 
   // reference to other table, sql like:  REFERENCES other_table(other_field)
   string Reference = 5;
@@ -59,7 +59,7 @@ message PDBField {
   string DefaultValue = 6;
 
   // append sql before ,
-  repeated string SQLAppends = 7;
+  repeated string SQLAppend = 7;
 
   // append sql after ,
   repeated string SQLAppendsEnd = 8;
