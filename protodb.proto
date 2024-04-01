@@ -47,6 +47,7 @@ enum FieldDbType {
   // int64,uint32 -> bigint
   // float -> float
   // double -> double precision
+  // bytes -> bytea
   AutoMatch = 0;
   BOOL = 1;
   INT32 = 2;
@@ -57,6 +58,10 @@ enum FieldDbType {
   JSONB = 7;
   UUID = 8;
   TIMESTAMP = 9;
+  DATE = 10;
+  BYTEA = 11;
+  //ipv4 or ipv6 address
+  INET = 12;
 }
 
 message PDBField {
