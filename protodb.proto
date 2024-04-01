@@ -10,7 +10,7 @@ message PDBFile {
   // name style(msg & field)
   // empty='go': default, go name style, better performance in crud operation in
   // go (like: UserName) 'snake': snake name style (like: user_name)
-  string NameStyle = 6;
+  string NameStyle = 1;
 }
 
 message PDBMsg {
@@ -30,12 +30,33 @@ message PDBMsg {
   // sql appends after ;
   repeated string SQLAppendsEnd = 5;
 
-  // generate proto msg {{msg}}List in  xxx.list.proto
-  // 0: auto if msg name start with db then generate {{msg}}List
-  // 1: always generate {{msg}}List
-  // 4: never generate {{msg}}List
+  // generate proto msg { {msg}}List in  xxx.list.proto
+  // 0: auto if msg name start with db then generate { {msg}}List
+  // 1: always generate { {msg}}List
+  // 4: never generate { {msg}}List
   int32 MsgList = 6;
 
+}
+
+enum FieldDbType {
+  // auto match db type if DbTypeStr not set
+  // pb type -> db type
+  // bool -> bool
+  // string -> text
+  // int32 -> int
+  // int64,uint32 -> bigint
+  // float -> float
+  // double -> double precision
+  AutoMatch = 0;
+  BOOL = 1;
+  INT32 = 2;
+  INT64 = 3;
+  FLOAT = 4;
+  DOUBLE = 5;
+  TEXT = 6;
+  JSONB = 7;
+  UUID = 8;
+  TIMESTAMP = 9;
 }
 
 message PDBField {
@@ -71,6 +92,14 @@ message PDBField {
   // serial type 0:not serial type 1:smallint 4:int 8:bigint
   // strong advice not use serial type,it's hard in distributed system
   int32 SerialType = 10;
+
+  // db type
+  FieldDbType DbType = 11;
+  // use custom db type when DbType is not good fit
+  string DbTypeStr = 12;
+
+  // zero value treat as null for insert,update, especially for reference field
+  bool ZeroAsNull = 13;
 }
 
 extend google.protobuf.FileOptions { optional PDBFile pdbf = 1888; }
