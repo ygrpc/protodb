@@ -105,10 +105,23 @@ message PDBField {
 
   // zero value treat as null for insert,update, especially for reference field
   bool ZeroAsNull = 13;
+
+  // db no insert
+  // when in insert, do not insert this field, for example, database has default value
+  bool NoInsert = 14;
 }
 
-extend google.protobuf.FileOptions { optional PDBFile pdbf = 1888; }
+extend google.protobuf.FileOptions {optional PDBFile pdbf = 1888;}
 
-extend google.protobuf.MessageOptions { optional PDBMsg pdbm = 1888; }
+extend google.protobuf.MessageOptions {optional PDBMsg pdbm = 1888;}
 
-extend google.protobuf.FieldOptions { optional PDBField pdb = 1888; }
+extend google.protobuf.FieldOptions {optional PDBField pdb = 1888;}
+
+
+// CRUD DML Result
+message DMLResult {
+  // affected_rows in dml operation
+  int64 AffectedRow = 1;
+  // err info when error happened
+  string ErrInfo = 2;
+}
