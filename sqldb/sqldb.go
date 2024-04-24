@@ -17,6 +17,7 @@ const (
 	Postgres TDBDialect = 1
 	Mysql    TDBDialect = 2
 	SQLite   TDBDialect = 3
+	Oracle   TDBDialect = 4
 )
 
 type TDBDialectCacheItem struct {

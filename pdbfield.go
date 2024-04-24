@@ -71,5 +71,9 @@ func (x *PDBField) NeedInUpdate() bool {
 		return false
 	}
 
+	if x.Primary {
+		return false
+	}
+
 	return true
 }

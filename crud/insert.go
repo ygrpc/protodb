@@ -57,9 +57,9 @@ func dbInsertReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
 	returnInserted := true
-	placeholder, _ := sqldb.GetDBPlaceholderCache(db)
+	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, placeholder, returnInserted)
+	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, returnInserted)
 	if err != nil {
 		return nil, err
 	}
@@ -76,7 +76,7 @@ func dbInsertReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 
 	returnMsg = msg.ProtoReflect().New().Interface()
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil)
+	err = DbScan2ProtoMsg(rows, returnMsg, nil, nil)
 
 	return returnMsg, err
 }
@@ -86,67 +86,54 @@ func dbInsert(db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.DMLResult, err error) {
 
-	returnAll := true
-	placeholder, _ := sqldb.GetDBPlaceholderCache(db)
+	returnInserted := false
+	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, tableName, msgDesc, msgFieldDescs, placeholder, returnAll)
+	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, returnInserted)
 	if err != nil {
 		return nil, err
 	}
 
-	if returnAll {
+	sqlResult, err := db.Exec(sqlStr, sqlVals...)
+	if err != nil {
+		return nil, err
+	}
+	rowsAffected, err := sqlResult.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
 
-		rows, err := db.Query(sqlStr, sqlVals...)
-		if err != nil {
-			return nil, err
-		}
-		defer rows.Close()
+	dmlResult = &protodb.DMLResult{
+		RowsAffected: rowsAffected,
+	}
 
-		if !rows.Next() {
-			return nil, sql.ErrNoRows
-		}
-
-		columnNames, err := rows.Columns()
-		if err != nil {
-			return nil, err
-		}
-
-		rowVals := make([]interface{}, len(columnNames))
-		for i := range rowVals {
-			rowVals[i] = new(interface{})
-		}
-		err = rows.Scan(rowVals...)
-		if err != nil {
-			fmt.Println("scan err:", err)
-			return nil, err
-		}
-
-	} // else {
-	//	sqlResult, err := db.Exec(sqlStr, sqlVals...)
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//	rowsAffected, err := sqlResult.RowsAffected()
-	//	if err != nil {
-	//		return nil, err
-	//	}
-	//
-	//}
+	return dmlResult, nil
 
 }
 
 func dbBuildSqlInsert(msgobj proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
-	placeholder protosql.SQLPlaceholder, returnInserted bool) (sqlStr string, vals []interface{}, err error) {
+	dbdialect sqldb.TDBDialect, returnInserted bool) (sqlStr string, vals []interface{}, err error) {
 	sb := &strings.Builder{}
 	sb.WriteString(protosql.SQL_INSERT_INTO)
+
+	if len(tableName) == 0 {
+		tableName = string(msgDesc.Name())
+	}
+
 	if len(dbschema) == 0 {
 		sb.WriteString(tableName)
 	} else {
-		sb.WriteString(dbschema)
-		sb.WriteString(protosql.SQL_DOT)
-		sb.WriteString(tableName)
+		switch dbdialect {
+		case sqldb.Postgres, sqldb.Oracle:
+			sb.WriteString(dbschema)
+			sb.WriteString(protosql.SQL_DOT)
+			sb.WriteString(tableName)
+
+		default:
+			sb.WriteString(dbschema + tableName)
+		}
 
 	}
 	sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
@@ -187,6 +174,8 @@ func dbBuildSqlInsert(msgobj proto.Message, dbschema string, tableName string,
 	sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
 
 	firstPlaceholder := true
+
+	placeholder := dbdialect.Placeholder()
 
 	for i := 0; i < columntCount; i++ {
 		if firstPlaceholder {

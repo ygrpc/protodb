@@ -11,12 +11,14 @@ message PDBFile {
   // empty='go': default, go name style, better performance in crud operation in
   // go (like: UserName) 'snake': snake name style (like: user_name)
   string NameStyle = 1;
+
+  // comment for file
+  repeated string Comment = 2;
 }
 
 message PDBMsg {
-  // when table primary key include more than one field,need specify the primary
-  // key in pdbmsg
-  repeated string Primary = 1;
+  // comment for table
+  repeated string Comment = 1;
 
   // sql prepends before create table
   repeated string SQLPrepend = 2;
@@ -109,6 +111,9 @@ message PDBField {
   // db no insert
   // when in insert, do not insert this field, for example, database has default value
   bool NoInsert = 14;
+
+  // comment for field
+  repeated string Comment = 15;
 }
 
 extend google.protobuf.FileOptions {optional PDBFile pdbf = 1888;}
@@ -120,8 +125,8 @@ extend google.protobuf.FieldOptions {optional PDBField pdb = 1888;}
 
 // CRUD DML Result
 message DMLResult {
-  // affected_rows in dml operation
-  int64 AffectedRow = 1;
+  // RowsAffected in dml operation
+  int64 RowsAffected = 1;
   // err info when error happened
   string ErrInfo = 2;
 }
