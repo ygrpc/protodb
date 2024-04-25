@@ -13,7 +13,7 @@ import (
 	"strings"
 )
 
-// DbDeleteRteurn delete a message from db and return the deleted message
+// DbDeleteReturn delete a message from db and return the deleted message
 func DbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
 
 	msgPm := msg.ProtoReflect()

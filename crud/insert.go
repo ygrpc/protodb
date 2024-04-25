@@ -56,10 +56,9 @@ func dbInsertReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
-	returnInserted := true
 	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, returnInserted)
+	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
 		return nil, err
 	}
@@ -86,10 +85,9 @@ func dbInsert(db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.DMLResult, err error) {
 
-	returnInserted := false
 	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, returnInserted)
+	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {
 		return nil, err
 	}
