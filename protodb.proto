@@ -64,6 +64,7 @@ enum FieldDbType {
   BYTEA = 11;
   //ipv4 or ipv6 address
   INET = 12;
+  UINT32 = 13;
 }
 
 message PDBField {
@@ -74,7 +75,7 @@ message PDBField {
   // is primary key
   bool Primary = 2;
 
-  // is unique key
+  // is unique key, if the unique include multiple columns, specify the UniqueName
   bool Unique = 3;
 
   // is not null
@@ -96,7 +97,7 @@ message PDBField {
   // when in update, do not update this field, for example, create time
   bool NoUpdate = 9;
 
-  // serial type 0:not serial type 1:smallint 4:int 8:bigint
+  // serial type 0:not serial type 2:smallint(serial2) 4:integer(serial4) 8:bigint(serial8)
   // strong advice not use serial type,it's hard in distributed system
   int32 SerialType = 10;
 
@@ -114,6 +115,10 @@ message PDBField {
 
   // comment for field
   repeated string Comment = 15;
+
+  // unique group name
+  // when a unique constrain include multiple column, specify the a group name for it
+  string UniqueName = 16;
 }
 
 extend google.protobuf.FileOptions {optional PDBFile pdbf = 1888;}

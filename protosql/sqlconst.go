@@ -35,6 +35,30 @@ const SQL_OFFSET = " OFFSET "
 const SQL_RETURNING = " RETURNING "
 const SQL_ASTERISK = " * "
 
+// create table
+const SQL_CREATETABLE = "CREATE TABLE "
+
+// if not exists
+const SQL_IFNOTEXISTS = " IF NOT EXISTS "
+
+// SQL_PRIMARYKEY
+const SQL_PRIMARYKEY = " PRIMARY KEY "
+
+// NOT_NULL
+const NOT_NULL = " NOT NULL "
+
+// null
+const NULL = " NULL "
+
+// UNIQUE
+const UNIQUE = " UNIQUE "
+
+// REFERENCES
+const REFERENCES = " REFERENCES "
+
+// DEFAULT
+const DEFAULT = " DEFAULT "
+
 type SQLPlaceholder string
 
 var SQL_QUESTION SQLPlaceholder = "?"

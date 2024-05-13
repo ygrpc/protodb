@@ -9,30 +9,33 @@ import (
 	"strings"
 )
 
-func GetPDB(fieldDescriptor protoreflect.FieldDescriptor) (pdb *protodb.PDBField) {
+var EmptyPDB = &protodb.PDBField{}
+var EmptyPDBM = &protodb.PDBMsg{}
+
+func GetPDB(fieldDescriptor protoreflect.FieldDescriptor) (pdb *protodb.PDBField, found bool) {
 	fieldOptions := fieldDescriptor.Options()
 	if fieldOptions == nil {
-		return
+		return EmptyPDB, false
 	}
 
 	if !proto.HasExtension(fieldOptions, protodb.E_Pdb) {
-		return
+		return EmptyPDB, false
 	}
 
-	return proto.GetExtension(fieldOptions, protodb.E_Pdb).(*protodb.PDBField)
+	return proto.GetExtension(fieldOptions, protodb.E_Pdb).(*protodb.PDBField), true
 }
 
-func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg) {
+func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg, found bool) {
 	msgOptions := msgDescriptor.Options()
 	if msgOptions == nil {
-		return
+		return EmptyPDBM, false
 	}
 
 	if !proto.HasExtension(msgOptions, protodb.E_Pdbm) {
-		return
+		return EmptyPDBM, false
 	}
 
-	return proto.GetExtension(msgOptions, protodb.E_Pdbm).(*protodb.PDBMsg)
+	return proto.GetExtension(msgOptions, protodb.E_Pdbm).(*protodb.PDBMsg), true
 }
 
 func MaybeNull(val interface{}, field protoreflect.FieldDescriptor, fieldpdb *protodb.PDBField) interface{} {
@@ -74,7 +77,7 @@ func GetPrimaryKeyFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDes
 
 	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
 		field := msgFieldDescs.Get(fi)
-		fieldPdb := GetPDB(field)
+		fieldPdb, _ := GetPDB(field)
 		if fieldPdb != nil && fieldPdb.IsPrimary() {
 			fieldName := string(field.Name())
 			if nameLowercase {
