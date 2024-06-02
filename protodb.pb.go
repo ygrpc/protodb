@@ -293,7 +293,7 @@ type PDBField struct {
 	// db no update
 	// when in update, do not update this field, for example, create time
 	NoUpdate bool `protobuf:"varint,9,opt,name=NoUpdate,proto3" json:"NoUpdate,omitempty"`
-	// serial type 0:not serial type 1:smallint 4:int 8:bigint
+	// serial type 0:not serial type 2:smallint(serial2) 4:integer(serial4) 8:bigint(serial8)
 	// strong advice not use serial type,it's hard in distributed system
 	SerialType int32 `protobuf:"varint,10,opt,name=SerialType,proto3" json:"SerialType,omitempty"`
 	// db type

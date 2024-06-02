@@ -47,6 +47,11 @@ func GetDBDialect(db *sql.DB) (dialect TDBDialect) {
 
 	driver := GetDBDriverName(db)
 
+	switch driver {
+	//pgx stdlib driver
+	case "*stdlib.Driver":
+		return Postgres
+	}
 	//todo: compare driver string to known driver names
 
 	log.Printf("driver: %s", driver)
