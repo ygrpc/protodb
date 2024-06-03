@@ -48,13 +48,22 @@ func GetDBDialect(db *sql.DB) (dialect TDBDialect) {
 	driver := GetDBDriverName(db)
 
 	switch driver {
-	//pgx stdlib driver
 	case "*stdlib.Driver":
+		//pgx stdlib driver,
 		return Postgres
+	case "*pq.Driver":
+		//lib/pq driver
+		return Postgres
+	case "*sqlite3.SQLiteDriver":
+		//mattn/go-sqlite3 driver
+		return SQLite
+	case "*sqlite.Driver":
+		//modernc.org/sqlite driver
+		return SQLite
 	}
 	//todo: compare driver string to known driver names
 
-	log.Printf("driver: %s", driver)
+	log.Printf("not know db dialect for driver: %s", driver)
 
 	return Unknown
 }
