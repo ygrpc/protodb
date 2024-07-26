@@ -193,7 +193,7 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 	}
 }
 
-// DbMigrateTable migrate a table to the latest definition of proto message
+// DbMigrateTable migrate a table to the definition of proto message
 func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string) (sqlStr []string, err error) {
 
 	return nil, err

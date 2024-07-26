@@ -140,7 +140,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, dbschema string, tableName string,
 			continue
 		}
 
-		fieldPdb := pdbutil.GetPDB(field)
+		fieldPdb, _ := pdbutil.GetPDB(field)
 
 		if !fieldPdb.NeedInUpdate() {
 			continue
