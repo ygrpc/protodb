@@ -9,6 +9,8 @@ import (
 	"strings"
 )
 
+var NullValue = sql.NullString{String: "", Valid: false}
+
 var EmptyPDB = &protodb.PDBField{}
 var EmptyPDBM = &protodb.PDBMsg{}
 
@@ -38,10 +40,14 @@ func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg
 	return proto.GetExtension(msgOptions, protodb.E_Pdbm).(*protodb.PDBMsg), true
 }
 
-func MaybeNull(val interface{}, field protoreflect.FieldDescriptor, fieldpdb *protodb.PDBField) interface{} {
+func IsZeroValue(val interface{}) bool {
 	valStr := fmt.Sprint(val)
-	if len(valStr) == 0 || valStr == "0" {
-		return sql.NullString{String: "", Valid: false}
+	return len(valStr) == 0 || valStr == "0"
+}
+
+func MaybeNull(val interface{}, field protoreflect.FieldDescriptor, fieldpdb *protodb.PDBField) interface{} {
+	if IsZeroValue(val) {
+		return NullValue
 	}
 	return val
 }

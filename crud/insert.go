@@ -141,7 +141,7 @@ func dbBuildSqlInsert(msgobj proto.Message, dbschema string, tableName string,
 	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
 		field := msgFieldDescs.Get(fi)
 
-		fieldPdb := pdbutil.GetPDB(field)
+		fieldPdb, _ := pdbutil.GetPDB(field)
 
 		if !fieldPdb.NeedInInsert() {
 			continue
@@ -162,8 +162,12 @@ func dbBuildSqlInsert(msgobj proto.Message, dbschema string, tableName string,
 		}
 		columntCount++
 		sb.WriteString(fieldName)
-		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) {
-			val = pdbutil.MaybeNull(val, field, fieldPdb)
+		isValZero := pdbutil.IsZeroValue(val)
+		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
+			val = pdbutil.NullValue
+		} else if isValZero && hasDefaultValue {
+			val = fieldPdb.DefaultValue2SQLArgs()
 		}
 		vals = append(vals, val)
 	}

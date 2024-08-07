@@ -154,6 +154,14 @@ func dbBuildSqlUpdate(msgobj proto.Message, dbschema string, tableName string,
 			return "", nil, err
 		}
 
+		isValZero := pdbutil.IsZeroValue(val)
+		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
+			val = pdbutil.NullValue
+		} else if isValZero && hasDefaultValue {
+			val = fieldPdb.DefaultValue2SQLArgs()
+		}
+
 		sqlVals = append(sqlVals, val)
 
 	}

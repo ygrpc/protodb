@@ -83,6 +83,17 @@ func (x *PDBField) NeedInUpdate() bool {
 	return true
 }
 
+// has default value
+func (x *PDBField) HasDefaultValue() (defaultValue string, found bool) {
+	return x.DefaultValue, len(x.DefaultValue) > 0
+}
+
+// default value to sql args
+func (x *PDBField) DefaultValue2SQLArgs() (sqlArgs interface{}) {
+	//todo need more logic to convert default value to sql args
+	return x.DefaultValue
+}
+
 // PdbDbTypeStr get db type string from pdb if specified
 func (x *PDBField) PdbDbTypeStr(fieldMsg protoreflect.FieldDescriptor) string {
 	if len(x.DbTypeStr) > 0 {
