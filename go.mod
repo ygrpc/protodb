@@ -1,6 +1,6 @@
 module github.com/ygrpc/protodb
 
-go 1.20.0
+go 1.20
 
 require (
 	github.com/puzpuzpuz/xsync/v3 v3.1.0

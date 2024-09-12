@@ -3,10 +3,11 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
-	"strings"
 
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
@@ -14,24 +15,24 @@ import (
 )
 
 // DbUpdate update a message in db
-func DbUpdate(db *sql.DB, msg proto.Message, dbschema string) (dmlResult *protodb.DMLResult, err error) {
+func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.DMLResult, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	return dbUpdate(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	return dbUpdate(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
 
 }
 
 // dbUpdate update a message in db
-func dbUpdate(db *sql.DB, msg proto.Message, dbschema string, tableName string,
+func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.DMLResult, err error) {
 
 	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
+	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {
 		return nil, err
 
@@ -57,23 +58,23 @@ func dbUpdate(db *sql.DB, msg proto.Message, dbschema string, tableName string,
 }
 
 // DbUpdateReturn update a message in db and return the updated message
-func DbUpdateReturn(db *sql.DB, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
+func DbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	return dbUpdateReturn(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	return dbUpdateReturn(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
 }
 
 // dbUpdateReturn update a message in db and return the updated message
-func dbUpdateReturn(db *sql.DB, msg proto.Message, dbschema string, tableName string,
+func dbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
 	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
+	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +97,7 @@ func dbUpdateReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 }
 
 // dbBuildSqlUpdate build sql update statement
-func dbBuildSqlUpdate(msgobj proto.Message, dbschema string, tableName string,
+func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 	dbdialect sqldb.TDBDialect, returnUpdated bool) (sqlStr string, sqlVals []interface{}, err error) {
@@ -144,6 +145,12 @@ func dbBuildSqlUpdate(msgobj proto.Message, dbschema string, tableName string,
 
 		if !fieldPdb.NeedInUpdate() {
 			continue
+		}
+
+		if msgLastFieldNo > 0 {
+			if int32(field.Number()) > msgLastFieldNo {
+				continue
+			}
 		}
 
 		valFieldNames = append(valFieldNames, fieldName)
