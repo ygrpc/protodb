@@ -91,7 +91,9 @@ func dbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschem
 
 	returnMsg = msg.ProtoReflect().New().Interface()
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, nil)
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
+
+	err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
 
 	return returnMsg, err
 }
@@ -225,13 +227,13 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		sqlVals = append(sqlVals, val)
 	}
 
-	sqlStr = sb.String()
-
 	if returnUpdated {
 		sb.WriteString(protosql.SQL_RETURNING)
 		sb.WriteString(protosql.SQL_SPACE)
 		sb.WriteString(protosql.SQL_ASTERISK)
 	}
+
+	sqlStr = sb.String()
 
 	sqlStr += protosql.SQL_SEMICOLON
 

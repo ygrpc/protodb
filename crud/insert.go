@@ -76,7 +76,9 @@ func dbInsertReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschem
 
 	returnMsg = msg.ProtoReflect().New().Interface()
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, nil)
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
+
+	err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
 
 	return returnMsg, err
 }

@@ -28,6 +28,10 @@ func DbScan2ProtoMsg(rows *sql.Rows, msg proto.Message, columnNames []string, ms
 		return err
 	}
 
+	if msgFieldsMap == nil {
+		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, msg.ProtoReflect().Descriptor().Fields(), true)
+	}
+
 	for i := 0; i < len(columnNames); i++ {
 		columnName := strings.ToLower(columnNames[i])
 		fieldDesc, ok := msgFieldsMap[columnName]
