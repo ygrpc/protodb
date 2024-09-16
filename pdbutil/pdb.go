@@ -96,3 +96,23 @@ func GetPrimaryKeyFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDes
 
 	return result
 }
+
+// GetPrimaryKeyOrUniqueFieldDescs get primary key or unique field descriptors, primaryKey|unique -> field descriptor
+func GetPrimaryKeyOrUniqueFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, nameLowercase bool) map[string]protoreflect.FieldDescriptor {
+	result := make(map[string]protoreflect.FieldDescriptor)
+
+	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
+		field := msgFieldDescs.Get(fi)
+		fieldPdb, _ := GetPDB(field)
+		if fieldPdb != nil && (fieldPdb.IsPrimary() || fieldPdb.IsUnique() || len(fieldPdb.UniqueName) > 0) {
+			fieldName := string(field.Name())
+			if nameLowercase {
+				result[strings.ToLower(fieldName)] = field
+			} else {
+				result[fieldName] = field
+			}
+		}
+	}
+
+	return result
+}
