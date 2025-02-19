@@ -57,20 +57,20 @@ func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 	return dmlResult, nil
 }
 
-// DbUpdateReturn update a message in db and return the updated message
-func DbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
+// DbUpdateReturnNew update a message in db and return the updated message
+func DbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	return dbUpdateReturn(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
+	return dbUpdateReturnNew(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
 }
 
-// dbUpdateReturn update a message in db and return the updated message
-func dbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+// dbUpdateReturnNew update a message in db and return the updated message
+func dbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
+	msgFieldDescs protoreflect.FieldDescriptors) (newMsg proto.Message, err error) {
 
 	dbdialect := sqldb.GetDBDialect(db)
 
@@ -89,13 +89,13 @@ func dbUpdateReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschem
 		return nil, sql.ErrNoRows
 	}
 
-	returnMsg = msg.ProtoReflect().New().Interface()
+	newMsg = msg.ProtoReflect().New().Interface()
 
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
+	err = DbScan2ProtoMsg(rows, newMsg, nil, msgFieldsMap)
 
-	return returnMsg, err
+	return newMsg, err
 }
 
 // dbBuildSqlUpdate build sql update statement
