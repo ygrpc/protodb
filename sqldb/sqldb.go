@@ -105,3 +105,19 @@ func GetDBDriverName(db *sql.DB) string {
 	driver := db.Driver()
 	return reflect.TypeOf(driver).String()
 }
+
+// BuildDbTableName build db table name
+func BuildDbTableName(tableName string, dbschema string, dbdialect TDBDialect) string {
+	dbtableName := tableName
+	if len(dbschema) == 0 {
+		//use default table name
+	} else {
+		switch dbdialect {
+		case Postgres, Oracle:
+			dbtableName = dbschema + "." + tableName
+		default:
+			dbtableName = dbschema + tableName
+		}
+	}
+	return dbtableName
+}

@@ -87,27 +87,16 @@ func dbBuildSqlDelete(msgobj proto.Message, dbschema string, tableName string,
 	msgFieldDescs protoreflect.FieldDescriptors,
 	dbdialect sqldb.TDBDialect, returnDeleted bool) (sqlStr string, vals []interface{}, err error) {
 	sb := &strings.Builder{}
-	sb.WriteString(protosql.SQL_DELETE)
-	sb.WriteString(protosql.SQL_FROM)
+	//sb.WriteString(protosql.SQL_DELETE)
+	//sb.WriteString(protosql.SQL_FROM)
+	sb.WriteString("DELETE FROM ")
 
 	if len(tableName) == 0 {
 		tableName = string(msgDesc.Name())
 	}
 
-	if len(dbschema) == 0 {
-		sb.WriteString(tableName)
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sb.WriteString(dbschema)
-			sb.WriteString(protosql.SQL_DOT)
-			sb.WriteString(tableName)
-
-		default:
-			sb.WriteString(dbschema + tableName)
-		}
-
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sb.WriteString(dbtableName)
 
 	sb.WriteString(protosql.SQL_WHERE)
 
@@ -146,10 +135,7 @@ func dbBuildSqlDelete(msgobj proto.Message, dbschema string, tableName string,
 	}
 
 	if returnDeleted {
-		sb.WriteString(protosql.SQL_RETURNING)
-		sb.WriteString(protosql.SQL_SPACE)
-		sb.WriteString(protosql.SQL_ASTERISK)
-
+		sb.WriteString(" RETURNING * ")
 	}
 	sb.WriteString(protosql.SQL_SEMICOLON)
 

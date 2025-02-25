@@ -60,17 +60,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	dbdialect := sqldb.GetDBDialect(db)
 
-	if len(dbschema) > 0 {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sqlStr += dbschema + "." + tableName
-		default:
-			sqlStr += dbschema + tableName
-		}
-	} else {
-		sqlStr += tableName
-	}
-
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sqlStr += dbtableName
 	sqlStr += protosql.SQL_LEFT_PARENTHESES
 	sqlStr += "\n"
 

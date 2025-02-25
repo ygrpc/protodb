@@ -123,20 +123,8 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		tableName = string(msgDesc.Name())
 	}
 
-	if len(dbschema) == 0 {
-		sb.WriteString(tableName)
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sb.WriteString(dbschema)
-			sb.WriteString(protosql.SQL_DOT)
-			sb.WriteString(tableName)
-
-		default:
-			sb.WriteString(dbschema + tableName)
-		}
-
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sb.WriteString(dbtableName)
 	sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
 	firstCoumn := true
 	columntCount := 0
@@ -185,9 +173,10 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		}
 		vals = append(vals, val)
 	}
-	sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
-	sb.WriteString(protosql.SQL_INSERT_VALUES)
-	sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
+	//sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+	//sb.WriteString(protosql.SQL_INSERT_VALUES)
+	//sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
+	sb.WriteString(" ) VALUES ( ")
 
 	firstPlaceholder := true
 
@@ -209,9 +198,7 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 
 	sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
 	if returnInserted {
-		sb.WriteString(protosql.SQL_RETURNING)
-		sb.WriteString(protosql.SQL_SPACE)
-		sb.WriteString(protosql.SQL_ASTERISK)
+		sb.WriteString(" RETURNING * ")
 
 	}
 	sb.WriteString(protosql.SQL_SEMICOLON)

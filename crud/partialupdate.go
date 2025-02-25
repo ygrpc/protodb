@@ -149,18 +149,8 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_UPDATE)
 
-	if len(dbschema) == 0 {
-		sb.WriteString(tableName)
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sb.WriteString(dbschema)
-			sb.WriteString(".")
-			sb.WriteString(tableName)
-		default:
-			sb.WriteString(dbschema + tableName)
-		}
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sb.WriteString(dbtableName)
 
 	sb.WriteString(protosql.SQL_SET)
 
@@ -273,14 +263,12 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 	}
 
 	if returnUpdated {
-		sb.WriteString(protosql.SQL_RETURNING)
-		sb.WriteString(protosql.SQL_SPACE)
-		sb.WriteString(protosql.SQL_ASTERISK)
+		sb.WriteString(" RETURNING * ")
 	}
 
-	sqlStr = sb.String()
+	sb.WriteString(protosql.SQL_SEMICOLON)
 
-	sqlStr += protosql.SQL_SEMICOLON
+	sqlStr = sb.String()
 
 	return sqlStr, sqlVals, nil
 
@@ -292,17 +280,7 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 	msgFieldDescs protoreflect.FieldDescriptors,
 	dbdialect sqldb.TDBDialect) (sqlStr string, sqlVals []interface{}, err error) {
 
-	dbtableName := tableName
-	if len(dbschema) == 0 {
-		//use default table name
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			dbtableName = dbschema + "." + tableName
-		default:
-			dbtableName = dbschema + tableName
-		}
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 
 	placeholder := dbdialect.Placeholder()
 	primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
@@ -436,9 +414,7 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 		sb.WriteString(fieldName)
 	}
 
-	sb.WriteString(protosql.SQL_RETURNING)
-	sb.WriteString(" old.*,new.*")
-	sb.WriteString(protosql.SQL_SEMICOLON)
+	sb.WriteString(" RETURNING old.*,new.* ;")
 
 	return sb.String(), sqlVals, nil
 }

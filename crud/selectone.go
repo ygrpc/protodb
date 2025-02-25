@@ -87,18 +87,8 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 
 	sb.WriteString(protosql.SQL_FROM)
 
-	if len(dbschema) == 0 {
-		sb.WriteString(tableName)
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sb.WriteString(dbschema)
-			sb.WriteString(".")
-			sb.WriteString(tableName)
-		default:
-			sb.WriteString(dbschema + tableName)
-		}
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sb.WriteString(dbtableName)
 
 	sb.WriteString(protosql.SQL_WHERE)
 

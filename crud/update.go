@@ -116,19 +116,8 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_UPDATE)
 
-	if len(dbschema) == 0 {
-		sb.WriteString(tableName)
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			sb.WriteString(dbschema)
-			sb.WriteString(".")
-			sb.WriteString(tableName)
-		default:
-			sb.WriteString(dbschema + tableName)
-		}
-	}
-
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+	sb.WriteString(dbtableName)
 	sb.WriteString(protosql.SQL_SET)
 
 	valFieldNames := make([]string, 0)
@@ -237,14 +226,11 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	}
 
 	if returnUpdated {
-		sb.WriteString(protosql.SQL_RETURNING)
-		sb.WriteString(protosql.SQL_SPACE)
-		sb.WriteString(protosql.SQL_ASTERISK)
+		sb.WriteString(" RETURNING * ")
 	}
 
+	sb.WriteString(protosql.SQL_SEMICOLON)
 	sqlStr = sb.String()
-
-	sqlStr += protosql.SQL_SEMICOLON
 
 	return sqlStr, sqlVals, nil
 
@@ -292,17 +278,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 	//with old as (select * from ttt where id=1)
 	//update ttt new set username='1234567' from old where new.id=old.id RETURNING old.*,new.*;
 
-	dbtableName := tableName
-	if len(dbschema) == 0 {
-		//use default table name
-	} else {
-		switch dbdialect {
-		case sqldb.Postgres, sqldb.Oracle:
-			dbtableName = dbschema + "." + tableName
-		default:
-			dbtableName = dbschema + tableName
-		}
-	}
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 
 	placeholder := dbdialect.Placeholder()
 	primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
@@ -344,12 +320,13 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 		sqlVals = append(sqlVals, val)
 	}
 
-	sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+	//sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+	//sb.WriteString(protosql.SQL_UPDATE)
 
-	sb.WriteString(protosql.SQL_UPDATE)
+	sb.WriteString(" ) UPDATE ")
 	sb.WriteString(tableName)
-	sb.WriteString(" new ")
-	sb.WriteString(protosql.SQL_SET)
+	sb.WriteString(" new set ")
+	//sb.WriteString(protosql.SQL_SET)
 
 	valFieldNames := make([]string, 0)
 
@@ -418,10 +395,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 		}
 	}
 
-	sb.WriteString(protosql.SQL_FROM)
-	sb.WriteString(" old ")
-
-	sb.WriteString(protosql.SQL_WHERE)
+	sb.WriteString(" from old where ")
 
 	firstPlaceholder = true
 
@@ -434,18 +408,15 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 
 		sb.WriteString(" new.")
 		sb.WriteString(fieldName)
-		sb.WriteString(protosql.SQL_EQUEAL)
-		sb.WriteString("old.")
+		//sb.WriteString(protosql.SQL_EQUEAL)
+		sb.WriteString("=old.")
 		sb.WriteString(fieldName)
 
 	}
 
-	sb.WriteString(protosql.SQL_RETURNING)
-	sb.WriteString(" old.*,new.*")
+	sb.WriteString(" RETURNING old.*,new.* ;")
 
 	sqlStr = sb.String()
-
-	sqlStr += protosql.SQL_SEMICOLON
 
 	return sqlStr, sqlVals, nil
 
