@@ -3,13 +3,14 @@ package ddl
 import (
 	"database/sql"
 	"fmt"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
 	"github.com/ygrpc/protodb/sqldb"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
-import "google.golang.org/protobuf/proto"
 
 func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string) (sqlStr string, err error) {
 	msgPm := msg.ProtoReflect()
