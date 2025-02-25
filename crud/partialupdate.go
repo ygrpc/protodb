@@ -56,18 +56,18 @@ func dbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbsch
 	return dmlResult, nil
 }
 
-// DbUpdatePartialReturn update a message in db and return the updated message
-func DbUpdatePartialReturn(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
+// DbUpdatePartialReturnNew update a message in db and return the updated message
+func DbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	return dbUpdatePartialReturn(db, msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs)
+	return dbUpdatePartialReturnNew(db, msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs)
 }
 
-// dbUpdatePartialReturn update a message in db and return the updated message
-func dbUpdatePartialReturn(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
+// dbUpdatePartialReturnNew update a message in db and return the updated message
+func dbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
