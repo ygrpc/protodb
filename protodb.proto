@@ -38,6 +38,8 @@ message PDBMsg {
   // 4: never generate { {msg}}List
   int32 MsgList = 6;
 
+  // do not generate db table for this message
+  bool NotDB = 7;
 }
 
 enum FieldDbType {

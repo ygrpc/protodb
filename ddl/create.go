@@ -2,6 +2,7 @@ package ddl
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/ygrpc/protodb"
@@ -22,6 +23,13 @@ func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string) (sqlStr string,
 }
 
 func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (sqlStr string, err error) {
+	pdbm, found := pdbutil.GetPDBM(msgDesc)
+	if found {
+		if pdbm.NotDB {
+			return "", errors.New("do not generate db table for this message by user")
+		}
+	}
+
 	fieldPdbMap := map[string]*protodb.PDBField{}
 	primarykeys := []protoreflect.FieldDescriptor{}
 
@@ -46,7 +54,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	sqlStr = ""
 
-	pdbm, _ := pdbutil.GetPDBM(msgDesc)
 	if pdbm != nil {
 		for _, presql := range pdbm.SQLPrepend {
 			sqlStr += presql + "\n"
