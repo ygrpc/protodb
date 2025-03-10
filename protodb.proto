@@ -129,11 +129,49 @@ extend google.protobuf.MessageOptions {optional PDBMsg pdbm = 1888;}
 
 extend google.protobuf.FieldOptions {optional PDBField pdb = 1888;}
 
+//crud api code
+enum CrudReqCode {
+  INSERT = 0;
+  UPDATE = 1;
+  PARTIALUPDATE = 2;
+  DELETE = 3;
+  SELECTONE = 4;
+}
 
-// CRUD DML Result
-message DMLResult {
+// crud result type for return
+enum CrudResultType {
+  //only info dml result(affected rows)
+  DMLResult = 0;
+  //return new row as msg, selectone use this too
+  NewMsg = 1;
+  //return old row as msg and new row as msg
+  OldMsgAndNewMsg = 2;
+}
+
+//crud request
+message CrudReq {
+  CrudReqCode Code = 1;
+  CrudResultType ResultType = 2;
+  string SchemeName = 3;
+  string TableName = 4;
+  bytes MsgBytes = 5;
+  repeated string PartialUpdateFields = 6;
+  repeated string SelectResultFields = 7;
+}
+
+// Crud response
+message CrudResp {
   // RowsAffected in dml operation
   int64 RowsAffected = 1;
   // err info when error happened
   string ErrInfo = 2;
+  //old row as msg
+  bytes OldMsgBytes = 3;
+  //new row as msg
+  bytes NewMsgBytes = 4;
+}
+
+// crud service
+service DbCrud {
+  rpc Crud(CrudReq) returns (CrudResp) {};
 }
