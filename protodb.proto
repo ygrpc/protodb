@@ -171,7 +171,7 @@ message CrudResp {
   bytes NewMsgBytes = 4;
 }
 
-// crud service
-service DbCrud {
+// protodb service
+service ProtoDbSrv {
   rpc Crud(CrudReq) returns (CrudResp) {};
 }
