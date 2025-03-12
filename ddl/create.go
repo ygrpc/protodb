@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
@@ -194,6 +193,39 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 
 // DbMigrateTable migrate a table to the definition of proto message
 func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string) (sqlStr []string, err error) {
+	msgPm := msg.ProtoReflect()
+	msgDesc := msgPm.Descriptor()
+	msgFieldDescs := msgDesc.Fields()
+	tableName := string(msgDesc.Name())
 
-	return nil, err
+	// Get database dialect
+	dbdialect := sqldb.GetDBDialect(db)
+
+	switch dbdialect {
+	case sqldb.Postgres:
+		sqlStr, err = dbMigrateTablePostgres(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	case sqldb.Mysql:
+		sqlStr, err = dbMigrateTableMysql(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	case sqldb.SQLite:
+		sqlStr, err = dbMigrateTableSQLite(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	default:
+		err = fmt.Errorf("not support database dialect %s", dbdialect)
+	}
+
+	return sqlStr, err
+}
+
+func dbMigrateTablePostgres(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (sqlStr []string, err error) {
+
+	return nil, nil
+}
+
+func dbMigrateTableMysql(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (sqlStr []string, err error) {
+
+	return nil, nil
+}
+
+func dbMigrateTableSQLite(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (sqlStr []string, err error) {
+
+	return nil, nil
 }
