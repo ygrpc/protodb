@@ -15,7 +15,7 @@ import (
 )
 
 // DbUpdatePartial update a message in db
-func DbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.DMLResult, err error) {
+func DbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -28,7 +28,7 @@ func DbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbsch
 // dbUpdatePartial update a message in db
 func dbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.DMLResult, err error) {
+	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 
 	dbdialect := sqldb.GetDBDialect(db)
 
@@ -50,7 +50,7 @@ func dbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbsch
 
 	}
 
-	dmlResult = &protodb.DMLResult{
+	dmlResult = &protodb.CrudResp{
 		RowsAffected: rowsAffected,
 	}
 

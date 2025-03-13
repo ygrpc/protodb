@@ -51,7 +51,7 @@ func dbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 }
 
 // DbDelete delete a message from db
-func DbDelete(db *sql.DB, msg proto.Message, dbschema string) (dmlResult *protodb.DMLResult, err error) {
+func DbDelete(db *sql.DB, msg proto.Message, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -73,7 +73,7 @@ func DbDelete(db *sql.DB, msg proto.Message, dbschema string) (dmlResult *protod
 		return nil, err
 	}
 
-	dmlResult = &protodb.DMLResult{
+	dmlResult = &protodb.CrudResp{
 		RowsAffected: rowsAffected,
 	}
 

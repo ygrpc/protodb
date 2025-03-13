@@ -15,7 +15,7 @@ import (
 )
 
 // DbUpdate update a message in db
-func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.DMLResult, err error) {
+func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -28,7 +28,7 @@ func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 // dbUpdate update a message in db
 func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.DMLResult, err error) {
+	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 
 	dbdialect := sqldb.GetDBDialect(db)
 
@@ -50,7 +50,7 @@ func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 
 	}
 
-	dmlResult = &protodb.DMLResult{
+	dmlResult = &protodb.CrudResp{
 		RowsAffected: rowsAffected,
 	}
 
