@@ -24,11 +24,11 @@ func GetPDB(fieldDescriptor protoreflect.FieldDescriptor) (pdb *protodb.PDBField
 		return EmptyPDB, false
 	}
 
-	pdb = proto.GetExtension(fieldOptions, protodb.E_Pdb).(*protodb.PDBField)
-	if pdb == nil {
-		return EmptyPDB, false
+	pdb, found = proto.GetExtension(fieldOptions, protodb.E_Pdb).(*protodb.PDBField)
+	if !found {
+		pdb = EmptyPDB
 	}
-	return pdb, true
+	return pdb, found
 }
 
 func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg, found bool) {
@@ -41,11 +41,12 @@ func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg
 		return EmptyPDBM, false
 	}
 
-	pdbm = proto.GetExtension(msgOptions, protodb.E_Pdbm).(*protodb.PDBMsg)
-	if pdbm == nil {
-		return EmptyPDBM, false
+	pdbm, found = proto.GetExtension(msgOptions, protodb.E_Pdbm).(*protodb.PDBMsg)
+	if !found {
+		pdbm = EmptyPDBM
 	}
-	return pdbm, true
+	return pdbm, found
+
 }
 
 func IsZeroValue(val interface{}) bool {

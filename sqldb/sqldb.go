@@ -5,6 +5,7 @@ import (
 	"github.com/ygrpc/protodb/protosql"
 	"log"
 	"reflect"
+	"strconv"
 	"time"
 
 	"github.com/puzpuzpuz/xsync/v3"
@@ -39,6 +40,19 @@ func (this TDBDialect) Placeholder() protosql.SQLPlaceholder {
 		return protosql.SQL_QUESTION
 	}
 	return protosql.SQL_QUESTION
+
+}
+
+func (this TDBDialect) String() string {
+	switch this {
+	case Postgres:
+		return "Postgres"
+	case Mysql:
+		return "Mysql"
+	case SQLite:
+		return "SQLite"
+	}
+	return "Unknown TDBDialect:%d" + strconv.Itoa(int(this))
 
 }
 

@@ -2,6 +2,7 @@ package protodb
 
 import (
 	"fmt"
+	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
@@ -95,16 +96,12 @@ func (x *PDBField) DefaultValue2SQLArgs() (sqlArgs interface{}) {
 }
 
 // PdbDbTypeStr get db type string from pdb if specified
-func (x *PDBField) PdbDbTypeStr(fieldMsg protoreflect.FieldDescriptor) string {
-	if len(x.DbTypeStr) > 0 {
-		return x.DbTypeStr
-	}
-
+func (x *PDBField) PdbDbTypeStrPostgresql(fieldMsg protoreflect.FieldDescriptor) string {
 	switch x.DbType {
 	case FieldDbType_AutoMatch:
 		switch x.SerialType {
 		case 0:
-			return GetProtoDBType(fieldMsg.Kind())
+			return GetProtoDBType(fieldMsg.Kind(), sqldb.Postgres)
 		case 2:
 			return "smallserial"
 		case 4:
@@ -157,13 +154,147 @@ func (x *PDBField) PdbDbTypeStr(fieldMsg protoreflect.FieldDescriptor) string {
 		return "inet"
 
 	default:
+		//todo
 		fmt.Println("todo: PdbDbTypeStr unknown db type:", x.DbType)
+		return ""
+	}
+}
+
+func (x *PDBField) PdbDbTypeStrMysql(fieldMsg protoreflect.FieldDescriptor) string {
+
+}
+
+func (x *PDBField) PdbDbTypeStrSQLite(fieldMsg protoreflect.FieldDescriptor) string {
+	switch x.DbType {
+	case FieldDbType_AutoMatch:
+		switch x.SerialType {
+		case 0:
+			return GetProtoDBType(fieldMsg.Kind(), sqldb.SQLite)
+		case 2:
+			return "integer"
+		case 4:
+			return "integer"
+		case 8:
+			return "integer"
+
+		default:
+			fmt.Println("todo: PdbDbTypeStr unknown serial type:", x.SerialType)
+			return "text"
+		}
+
+	//bool
+	case FieldDbType_BOOL:
+		return "integer"
+		//int32
+	case FieldDbType_INT32:
+		return "integer"
+		//uint32
+	case FieldDbType_UINT32:
+		return "integer"
+		//int64
+	case FieldDbType_INT64:
+		return "integer"
+		//float
+	case FieldDbType_FLOAT:
+		return "real"
+	case FieldDbType_DOUBLE:
+		return "double precision"
+		//text
+	case FieldDbType_TEXT:
+		return "text"
+		//jsonb
+	case FieldDbType_JSONB:
+		return "jsonb"
+		//uuid
+	case FieldDbType_UUID:
+		return "uuid"
+		//timestamp
+	case FieldDbType_TIMESTAMP:
+		return "timestamp"
+		//date
+	case FieldDbType_DATE:
+		return "date"
+		//bytea
+	case FieldDbType_BYTEA:
+		return "blob"
+		//inet
+	case FieldDbType_INET:
+		return "inet"
+
+	default:
+		//todo
+		fmt.Println("todo: PdbDbTypeStr unknown db type:", x.DbType)
+		return ""
+	}
+}
+
+func (x *PDBField) PdbDbTypeStr(fieldMsg protoreflect.FieldDescriptor, dialect sqldb.TDBDialect) string {
+	if len(x.DbTypeStr) > 0 {
+		return x.DbTypeStr
+	}
+
+	switch dialect {
+	case sqldb.Postgres:
+		return x.PdbDbTypeStrPostgresql(fieldMsg)
+	case sqldb.Mysql:
+		return x.PdbDbTypeStrMysql(fieldMsg)
+	case sqldb.SQLite:
+		return x.PdbDbTypeStrSQLite(fieldMsg)
+	default:
+		fmt.Println("todo: PdbDbTypeStr unknown db type:", x.DbType)
+		return ""
+	}
+}
+func GetProtoDBType(fieldType protoreflect.Kind, dialect sqldb.TDBDialect) string {
+	switch dialect {
+	case sqldb.Postgres:
+		return GetProtoDBTypePostgresql(fieldType)
+	case sqldb.Mysql:
+		return GetProtoDBTypeMysql(fieldType)
+	case sqldb.SQLite:
+		return GetProtoDBTypeSQLite(fieldType)
+	default:
+		fmt.Println("todo: PdbDbTypeStr unknown db type:", fieldType)
 		return ""
 	}
 
 }
 
-func GetProtoDBType(fieldType protoreflect.Kind) string {
+func GetProtoDBTypeSQLite(fieldType protoreflect.Kind) string {
+	switch fieldType {
+	case protoreflect.BoolKind:
+		return "integer"
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		return "integer"
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return "integer"
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return "integer"
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return "integer"
+	case protoreflect.FloatKind:
+		return "real"
+	case protoreflect.DoubleKind:
+		return "real"
+	case protoreflect.StringKind:
+		return "text"
+	case protoreflect.BytesKind:
+		return "blob"
+	case protoreflect.EnumKind:
+		return "integer"
+	case protoreflect.MessageKind:
+		return "blob"
+
+	default:
+		return "blob"
+	}
+
+}
+
+func GetProtoDBTypeMysql(fieldType protoreflect.Kind) string {
+	return "not implement"
+}
+func GetProtoDBTypePostgresql(fieldType protoreflect.Kind) string {
 	switch fieldType {
 	case protoreflect.BoolKind:
 		return "boolean"

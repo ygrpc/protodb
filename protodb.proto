@@ -40,6 +40,9 @@ message PDBMsg {
 
   // do not generate db table for this message
   bool NotDB = 7;
+
+  //sql for migrate table
+  repeated string SQLMigrate = 8;
 }
 
 enum FieldDbType {
