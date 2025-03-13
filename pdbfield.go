@@ -161,7 +161,65 @@ func (x *PDBField) PdbDbTypeStrPostgresql(fieldMsg protoreflect.FieldDescriptor)
 }
 
 func (x *PDBField) PdbDbTypeStrMysql(fieldMsg protoreflect.FieldDescriptor) string {
+	switch x.DbType {
+	case FieldDbType_AutoMatch:
+		switch x.SerialType {
+		case 0:
+			return GetProtoDBType(fieldMsg.Kind(), sqldb.Mysql)
+		case 2:
+			return "smallint AUTO_INCREMENT"
+		case 4:
+			return "int AUTO_INCREMENT"
+		case 8:
+			return "bigint AUTO_INCREMENT"
+		default:
+			fmt.Println("todo: PdbDbTypeStr unknown serial type:", x.SerialType)
+			return "text"
+		}
 
+	//bool
+	case FieldDbType_BOOL:
+		return "boolean"
+	//int32
+	case FieldDbType_INT32:
+		return "int"
+	//uint32
+	case FieldDbType_UINT32:
+		return "int unsigned"
+	//int64
+	case FieldDbType_INT64:
+		return "bigint"
+	//float
+	case FieldDbType_FLOAT:
+		return "float"
+	case FieldDbType_DOUBLE:
+		return "double"
+	//text
+	case FieldDbType_TEXT:
+		return "text"
+	//jsonb
+	case FieldDbType_JSONB:
+		return "json"
+	//uuid
+	case FieldDbType_UUID:
+		return "binary(16)"
+	//timestamp
+	case FieldDbType_TIMESTAMP:
+		return "timestamp"
+	//date
+	case FieldDbType_DATE:
+		return "date"
+	//bytea
+	case FieldDbType_BYTEA:
+		return "blob"
+	//inet
+	case FieldDbType_INET:
+		return "text"
+
+	default:
+		fmt.Println("todo: PdbDbTypeStr unknown db type:", x.DbType)
+		return ""
+	}
 }
 
 func (x *PDBField) PdbDbTypeStrSQLite(fieldMsg protoreflect.FieldDescriptor) string {
@@ -292,7 +350,7 @@ func GetProtoDBTypeSQLite(fieldType protoreflect.Kind) string {
 }
 
 func GetProtoDBTypeMysql(fieldType protoreflect.Kind) string {
-	return "not implement"
+
 }
 func GetProtoDBTypePostgresql(fieldType protoreflect.Kind) string {
 	switch fieldType {
