@@ -350,7 +350,32 @@ func GetProtoDBTypeSQLite(fieldType protoreflect.Kind) string {
 }
 
 func GetProtoDBTypeMysql(fieldType protoreflect.Kind) string {
-
+	switch fieldType {
+	case protoreflect.BoolKind:
+		return "boolean"
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		return "int"
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		return "bigint"
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		return "int unsigned"
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return "bigint unsigned"
+	case protoreflect.FloatKind:
+		return "float"
+	case protoreflect.DoubleKind:
+		return "double"
+	case protoreflect.StringKind:
+		return "text"
+	case protoreflect.BytesKind:
+		return "blob"
+	case protoreflect.EnumKind:
+		return "int"
+	case protoreflect.MessageKind:
+		return "json"
+	default:
+		return "text"
+	}
 }
 func GetProtoDBTypePostgresql(fieldType protoreflect.Kind) string {
 	switch fieldType {
