@@ -24,6 +24,24 @@ type TDbTableInitSql struct {
 	DepTableSqlItemMap map[string]*TDbTableInitSql
 }
 
+func TryAddQuote2DefaultValue(dbdialect sqldb.TDBDialect, fieldType protoreflect.Kind, fieldDbType protodb.FieldDbType, fieldDbTypeStr string, defaultValue string) string {
+	//if field proto type is number, do not add quote
+	if fieldType == protoreflect.Int32Kind || fieldType == protoreflect.Sint32Kind || fieldType == protoreflect.Sfixed32Kind ||
+		fieldType == protoreflect.Int64Kind || fieldType == protoreflect.Sint64Kind || fieldType == protoreflect.Sfixed64Kind ||
+		fieldType == protoreflect.Uint32Kind || fieldType == protoreflect.Fixed32Kind ||
+		fieldType == protoreflect.Uint64Kind || fieldType == protoreflect.Fixed64Kind ||
+		fieldType == protoreflect.FloatKind || fieldType == protoreflect.DoubleKind {
+		return defaultValue
+	}
+
+	trimmedDefaultValue := strings.TrimSpace(defaultValue)
+	if strings.HasPrefix(trimmedDefaultValue, "'") && strings.HasSuffix(trimmedDefaultValue, "'") {
+		return defaultValue
+	}
+
+	return "'" + defaultValue + "'"
+}
+
 func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
@@ -140,7 +158,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		}
 
 		if len(fieldPdb.DefaultValue) > 0 {
-			sqlStr += protosql.DEFAULT + fieldPdb.DefaultValue
+			sqlStr += protosql.DEFAULT +
+				TryAddQuote2DefaultValue(dbdialect, fieldDesc.Kind(), fieldPdb.DbType, fieldPdb.DbTypeStr, fieldPdb.DefaultValue)
 
 		}
 
@@ -393,7 +412,8 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 			}
 
 			if len(pdb.DefaultValue) > 0 {
-				alterStmt += " DEFAULT " + pdb.DefaultValue
+				alterStmt += " DEFAULT " +
+					TryAddQuote2DefaultValue(dbdialect, fieldDesc.Kind(), pdb.DbType, pdb.DbTypeStr, pdb.DefaultValue)
 			}
 
 			if len(pdb.Reference) > 0 {
