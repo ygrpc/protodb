@@ -16,12 +16,13 @@ import (
 )
 
 type TDbTableInitSql struct {
-	DepTableSqlItemMap map[string]*TDbTableInitSql
-	DbSchema           string
-	TableName          string
-	SqlStr             []string
+	DbSchema    string
+	TableName   string
+	TableExists bool
+	SqlStr      []string
+	// depend on sql table name in order, value in DepTableSqlItemMap
 	DepTableNames      []string
-	TableExists        bool
+	DepTableSqlItemMap map[string]*TDbTableInitSql
 }
 
 func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) string {
@@ -341,7 +342,7 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 	if len(dbschema) == 0 {
 		dbschema = "public"
 	}
-	query := fmt.Sprintf("SELECT EXISTS (SELECT * FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
+	query := fmt.Sprintf("SELECT EXISTS (SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
 		strings.ToLower(dbschema), strings.ToLower(tableName))
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
@@ -474,7 +475,7 @@ func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Mes
 // IsSQLiteTableExists check if table exists.
 func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf("SELECT EXISTS (SELECT * FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
+	query := fmt.Sprintf("SELECT EXISTS (SELECT name FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
