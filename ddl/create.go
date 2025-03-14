@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/msgstore"
 	"github.com/ygrpc/protodb/pdbutil"
@@ -11,21 +13,19 @@ import (
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"strings"
 )
 
 type TDbTableInitSql struct {
-	DbSchema    string
-	TableName   string
-	TableExists bool
-	SqlStr      []string
-	//depend on sql table name in order, value in DepTableSqlItemMap
-	DepTableNames      []string
 	DepTableSqlItemMap map[string]*TDbTableInitSql
+	DbSchema           string
+	TableName          string
+	SqlStr             []string
+	DepTableNames      []string
+	TableExists        bool
 }
 
 func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) string {
-	//if field proto type is number, do not add quote
+	// if field proto type is number, do not add quote
 	switch fieldType {
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
 		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
@@ -38,10 +38,11 @@ func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) 
 	}
 
 	trimmedDefaultValue := strings.TrimSpace(defaultValue)
-	if strings.HasPrefix(trimmedDefaultValue, "'") || strings.HasSuffix(trimmedDefaultValue, "'") {
+	if strings.HasPrefix(trimmedDefaultValue, "'") ||
+		strings.HasSuffix(trimmedDefaultValue, "'") {
 		return defaultValue
 	}
-	//if end with )
+	// if end with )
 	if strings.HasSuffix(trimmedDefaultValue, ")") {
 		return defaultValue
 	}
@@ -51,10 +52,11 @@ func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) 
 
 	// Surround the escaped string with single quotes
 	return "'" + escapedString + "'"
-
 }
 
-func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
+func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool,
+	withComment bool,
+) (sqlInitSql *TDbTableInitSql, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -63,7 +65,10 @@ func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference
 	return dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
 }
 
-func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
+func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema, tableName string,
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors,
+	checkRefference, withComment bool,
+) (sqlInitSql *TDbTableInitSql, err error) {
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
 	if found {
 		if pdbm.NotDB {
@@ -74,7 +79,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	fieldPdbMap := map[string]*protodb.PDBField{}
 	primarykeys := []protoreflect.FieldDescriptor{}
 
-	//uniquename->proto field
+	// uniquename->proto field
 	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
 	for i := 0; i < msgFieldDescs.Len(); i++ {
 		fieldDesc := msgFieldDescs.Get(i)
@@ -88,7 +93,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		}
 		if pdb.Unique {
 			if len(pdb.UniqueName) > 0 {
-				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+				uniquekeysMap[pdb.UniqueName] = append(
+					uniquekeysMap[pdb.UniqueName], fieldDesc)
 			}
 		}
 	}
@@ -146,7 +152,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		sqlStr += getSqlTypeStr(fieldMsg, fieldPdb, dbdialect)
 
 		if fieldPdb.IsPrimary() {
-
 		} else {
 			if fieldPdb.Unique && len(fieldPdb.UniqueName) == 0 {
 				sqlStr += protosql.UNIQUE
@@ -172,7 +177,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		if len(fieldPdb.DefaultValue) > 0 {
 			sqlStr += protosql.DEFAULT +
 				TryAddQuote2DefaultValue(fieldDesc.Kind(), fieldPdb.DefaultValue)
-
 		}
 
 		for _, s := range fieldPdb.SQLAppend {
@@ -184,7 +188,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		for _, s := range fieldPdb.SQLAppendsEnd {
 			sqlStr += s + "\n"
 		}
-
 	}
 
 	// remove last comma
@@ -212,7 +215,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	// unique keys
 	for _, uniqueFields := range uniquekeysMap {
-
 		sqlStr += protosql.SQL_COMMA + protosql.UNIQUE + protosql.SQL_LEFT_PARENTHESES
 		for _, field := range uniqueFields {
 			sqlStr += string(field.Name()) + ","
@@ -238,7 +240,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	initSqlItem.SqlStr = append(initSqlItem.SqlStr, sqlStr)
 	return initSqlItem, nil
-
 }
 
 func GetRefTableName(reference string) (string, error) {
@@ -257,12 +258,12 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 	}
 
 	if item.DepTableSqlItemMap[refTableName] != nil {
-		//already add
+		// already add
 		return nil
 	}
 
 	if item.TableName == refTableName {
-		//self reference
+		// self reference
 		return nil
 	}
 
@@ -284,11 +285,10 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 	item.DepTableNames = append(item.DepTableNames, refTableName)
 
 	return nil
-
 }
 
 func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBField, dialect sqldb.TDBDialect) string {
-	//get db type from pdb
+	// get db type from pdb
 	pdbdbtype := fieldPdb.PdbDbTypeStr(fieldMsg, dialect)
 	if len(pdbdbtype) > 0 {
 		return pdbdbtype
@@ -298,8 +298,10 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 	}
 }
 
-// DbMigrateTable migrate a table to the definition of proto message
-func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (migrateItem *TDbTableInitSql, err error) {
+// DbMigrateTable migrate a table to the definition of proto message.
+func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool,
+	withComment bool,
+) (migrateItem *TDbTableInitSql, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -318,11 +320,14 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 
 	switch dbdialect {
 	case sqldb.Postgres:
-		migrateItem, err = dbMigrateTablePostgres(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTablePostgres(migrateItem, db, msg, dbschema, tableName,
+			msgDesc, msgFieldDescs, checkRefference, withComment)
 	case sqldb.Mysql:
-		migrateItem, err = dbMigrateTableMysql(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTableMysql(migrateItem, db, msg, dbschema, tableName,
+			msgDesc, msgFieldDescs, checkRefference, withComment)
 	case sqldb.SQLite:
-		migrateItem, err = dbMigrateTableSQLite(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTableSQLite(migrateItem, db, msg, dbschema, tableName,
+			msgDesc, msgFieldDescs, checkRefference, withComment)
 	default:
 		err = fmt.Errorf("not support database dialect %s", dbdialect.String())
 	}
@@ -330,23 +335,25 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 	return migrateItem, err
 }
 
-// IsPostgresqlTableExists check if table exists. if dbschema is empty, use public
+// IsPostgresqlTableExists check if table exists. if dbschema is empty, use public.
 func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, error) {
 	var exists bool
 	if len(dbschema) == 0 {
 		dbschema = "public"
 	}
-	query := fmt.Sprintf("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
+	query := fmt.Sprintf("SELECT EXISTS (SELECT * FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
 		strings.ToLower(dbschema), strings.ToLower(tableName))
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
 	}
 	return exists, nil
-
 }
 
-func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
+func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message,
+	dbschema, tableName string, msgDesc protoreflect.MessageDescriptor,
+	msgFieldDescs protoreflect.FieldDescriptors, checkRefference, withComment bool,
+) (return_migrateItem *TDbTableInitSql, err error) {
 	if len(dbschema) == 0 {
 		dbschema = "public"
 		migrateItem.DbSchema = dbschema
@@ -362,7 +369,6 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 	if !exists {
 		// Table doesn't exist, create it
 		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment)
-
 		if err != nil {
 			return nil, err
 		}
@@ -378,13 +384,13 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
 
-	var existingColumns = make(map[string]bool)
+	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("error scanning table columns: %w", err)
 		}
-		//lowercase
+		// lowercase
 		existingColumns[strings.ToLower(columnName)] = true
 	}
 
@@ -438,15 +444,14 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 			alterStatements = append(alterStatements, alterStmt)
 		}
 
-		//check dependency
+		// check dependency
 		if len(pdb.Reference) > 0 && checkRefference {
-			//todo check dependency and add it to migrateItem
+			// todo check dependency and add it to migrateItem
 		}
 
 		if len(alterStatements) > 0 {
 			migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
 		}
-
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
@@ -458,15 +463,18 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 	return migrateItem, nil
 }
-func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
 
-	return nil, fmt.Errorf("not support database dialect Mysql now")
+func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message,
+	dbschema, tableName string, msgDesc protoreflect.MessageDescriptor,
+	msgFieldDescs protoreflect.FieldDescriptors, checkRefference, withComment bool,
+) (return_migrateItem *TDbTableInitSql, err error) {
+	return nil, errors.New("not support database dialect Mysql now")
 }
 
 // IsSQLiteTableExists check if table exists.
 func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf("SELECT EXISTS (SELECT FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
+	query := fmt.Sprintf("SELECT EXISTS (SELECT * FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
@@ -474,8 +482,10 @@ func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	return exists, nil
 }
 
-func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
-	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
+func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema, tableName string,
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors,
+	checkRefference, withComment bool,
+) (return_migrateItem *TDbTableInitSql, err error) {
 	dbtableName := dbschema + tableName
 
 	// Check if table exists
@@ -489,7 +499,6 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 	if !exists {
 		// Table doesn't exist, create it
 		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment)
-
 		if err != nil {
 			return nil, err
 		}
@@ -497,20 +506,20 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 		return createSQLItem, nil
 	}
 
-	//get all columns of table
+	// get all columns of table
 	query := fmt.Sprintf("SELECT name FROM PRAGMA_TABLE_INFO('%s')", dbtableName)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
 
-	var existingColumns = make(map[string]bool)
+	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("error scanning table columns: %w", err)
 		}
-		//lowercase
+		// lowercase
 		existingColumns[strings.ToLower(columnName)] = true
 	}
 
@@ -559,15 +568,14 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 			alterStatements = append(alterStatements, alterStmt)
 		}
 
-		//check dependency
+		// check dependency
 		if len(pdb.Reference) > 0 && checkRefference {
-			//todo check dependency and add it to migrateItem
+			// todo check dependency and add it to migrateItem
 		}
 
 		if len(alterStatements) > 0 {
 			migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
 		}
-
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
