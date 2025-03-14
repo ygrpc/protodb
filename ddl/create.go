@@ -63,6 +63,14 @@ func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
+	if builtInitSqlMap == nil {
+		return nil, errors.New("builtInitSqlMap cannot be nil")
+	}
+
+	if sqlInitSql, ok := builtInitSqlMap[tableName]; ok {
+		return sqlInitSql, nil
+	}
+
 	return dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
 }
 
@@ -167,7 +175,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		if len(fieldPdb.Reference) > 0 {
 			sqlStr += protosql.REFERENCES + fieldPdb.Reference
 			if checkRefference {
-				err := addRefferenceDepSqlForCreate(initSqlItem, fieldPdb.Reference, db, withComment)
+				err := addRefferenceDepSqlForCreate(initSqlItem, fieldPdb.Reference, db, withComment, builtInitSqlMap)
 				if err != nil {
 					return nil, err
 				}
@@ -242,6 +250,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	}
 
 	initSqlItem.SqlStr = append(initSqlItem.SqlStr, sqlStr)
+
+	builtInitSqlMap[initSqlItem.TableName] = initSqlItem
 	return initSqlItem, nil
 
 }
@@ -255,7 +265,8 @@ func GetRefTableName(reference string) (string, error) {
 	return tablename, nil
 }
 
-func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *sql.DB, withComment bool) error {
+func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *sql.DB, withComment bool,
+	builtInitSqlMap map[string]*TDbTableInitSql) error {
 	refTableName, err := GetRefTableName(reference)
 	if err != nil {
 		return err
@@ -280,7 +291,7 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 
-	depSqlItem, err := dbCreateSQL(db, depMsg, item.DbSchema, refTableName, msgDesc, msgFieldDescs, true, withComment)
+	depSqlItem, err := dbCreateSQL(db, depMsg, item.DbSchema, refTableName, msgDesc, msgFieldDescs, true, withComment, builtInitSqlMap)
 	if err != nil {
 		return err
 	}
@@ -379,7 +390,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 	if !exists {
 		// Table doesn't exist, create it
-		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment)
+		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment, builtInitSqlMap)
 
 		if err != nil {
 			return nil, err
@@ -548,7 +559,7 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 	if !exists {
 		// Table doesn't exist, create it
-		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment)
+		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment, builtInitSqlMap)
 
 		if err != nil {
 			return nil, err
