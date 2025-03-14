@@ -5,7 +5,7 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-type TFnGetMsg = func(msgName string) proto.Message
+type TFnGetMsg = func(new bool) proto.Message
 
 var msgStore = make(map[string]TFnGetMsg)
 
@@ -13,8 +13,8 @@ var msgStore = make(map[string]TFnGetMsg)
 // should call in init() function
 func RegisterMsg(msgName string, msgGetFunc TFnGetMsg) {
 	if oldmsgFn, ok := msgStore[msgName]; ok {
-		oldmsg := oldmsgFn(msgName)
-		newmsg := msgGetFunc(msgName)
+		oldmsg := oldmsgFn(false)
+		newmsg := msgGetFunc(false)
 		fmt.Println("reregister protomsg to msgStore:", msgName, "old:", oldmsg.ProtoReflect().Descriptor(), "new:", newmsg.ProtoReflect().Descriptor())
 	}
 
@@ -22,10 +22,10 @@ func RegisterMsg(msgName string, msgGetFunc TFnGetMsg) {
 }
 
 // GetMsg get a proto.Message from msgStore
-func GetMsg(msgName string) (proto.Message, bool) {
+func GetMsg(msgName string, new bool) (proto.Message, bool) {
 	msgfn, ok := msgStore[msgName]
 	if !ok {
 		return nil, false
 	}
-	return msgfn(msgName), true
+	return msgfn(new), true
 }

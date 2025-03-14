@@ -266,7 +266,7 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 		return nil
 	}
 
-	depMsg, found := msgstore.GetMsg(refTableName)
+	depMsg, found := msgstore.GetMsg(refTableName, false)
 	if !found {
 		return fmt.Errorf("reference table msg %s not found for %s", refTableName, item.TableName)
 	}
