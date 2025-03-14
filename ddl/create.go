@@ -24,7 +24,7 @@ type TDbTableInitSql struct {
 	DepTableSqlItemMap map[string]*TDbTableInitSql
 }
 
-func TryAddQuote2DefaultValue(dbdialect sqldb.TDBDialect, fieldType protoreflect.Kind, fieldDbType protodb.FieldDbType, fieldDbTypeStr string, defaultValue string) string {
+func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) string {
 	//if field proto type is number, do not add quote
 	switch fieldType {
 	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
@@ -171,7 +171,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 		if len(fieldPdb.DefaultValue) > 0 {
 			sqlStr += protosql.DEFAULT +
-				TryAddQuote2DefaultValue(dbdialect, fieldDesc.Kind(), fieldPdb.DbType, fieldPdb.DbTypeStr, fieldPdb.DefaultValue)
+				TryAddQuote2DefaultValue(fieldDesc.Kind(), fieldPdb.DefaultValue)
 
 		}
 
@@ -252,6 +252,9 @@ func GetRefTableName(reference string) (string, error) {
 
 func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *sql.DB, withComment bool) error {
 	refTableName, err := GetRefTableName(reference)
+	if err != nil {
+		return err
+	}
 
 	if item.DepTableSqlItemMap[refTableName] != nil {
 		//already add
@@ -424,7 +427,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 			if len(pdb.DefaultValue) > 0 {
 				alterStmt += " DEFAULT " +
-					TryAddQuote2DefaultValue(dbdialect, fieldDesc.Kind(), pdb.DbType, pdb.DbTypeStr, pdb.DefaultValue)
+					TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
 			}
 
 			if len(pdb.Reference) > 0 {
