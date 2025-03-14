@@ -176,5 +176,10 @@ message CrudResp {
 
 // protodb service
 service ProtoDbSrv {
+  // crud
   rpc Crud(CrudReq) returns (CrudResp) {};
+  // table select
+  rpc TableSelect(TableSelectReq) returns (stream TableSelectResp) {};
+  // query
+  rpc Query(QueryReq) returns (stream QueryResp) {};
 }
