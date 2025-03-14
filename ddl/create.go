@@ -26,12 +26,15 @@ type TDbTableInitSql struct {
 
 func TryAddQuote2DefaultValue(dbdialect sqldb.TDBDialect, fieldType protoreflect.Kind, fieldDbType protodb.FieldDbType, fieldDbTypeStr string, defaultValue string) string {
 	//if field proto type is number, do not add quote
-	if fieldType == protoreflect.Int32Kind || fieldType == protoreflect.Sint32Kind || fieldType == protoreflect.Sfixed32Kind ||
-		fieldType == protoreflect.Int64Kind || fieldType == protoreflect.Sint64Kind || fieldType == protoreflect.Sfixed64Kind ||
-		fieldType == protoreflect.Uint32Kind || fieldType == protoreflect.Fixed32Kind ||
-		fieldType == protoreflect.Uint64Kind || fieldType == protoreflect.Fixed64Kind ||
-		fieldType == protoreflect.FloatKind || fieldType == protoreflect.DoubleKind {
-		return defaultValue
+	switch fieldType {
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
+		protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+		protoreflect.Uint64Kind, protoreflect.Fixed64Kind,
+		protoreflect.FloatKind, protoreflect.DoubleKind:
+		{
+			return defaultValue
+		}
 	}
 
 	trimmedDefaultValue := strings.TrimSpace(defaultValue)
