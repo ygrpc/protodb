@@ -341,6 +341,8 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 		err = fmt.Errorf("not support database dialect %s", dbdialect.String())
 	}
 
+	builtInitSqlMap[migrateItem.TableName] = migrateItem
+
 	return migrateItem, err
 }
 
