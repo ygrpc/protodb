@@ -367,7 +367,7 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 	if len(dbschema) == 0 {
 		dbschema = "public"
 	}
-	query := fmt.Sprintf("SELECT EXISTS (SELECT FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
+	query := fmt.Sprintf("SELECT EXISTS (SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
 		strings.ToLower(dbschema), strings.ToLower(tableName))
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
@@ -411,13 +411,13 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
 
-	var existingColumns = make(map[string]bool)
+	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
 			return nil, fmt.Errorf("error scanning table columns: %w", err)
 		}
-		//lowercase
+		// lowercase
 		existingColumns[strings.ToLower(columnName)] = true
 	}
 
@@ -540,7 +540,7 @@ func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Mes
 // IsSQLiteTableExists check if table exists.
 func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf("SELECT EXISTS (SELECT FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
+	query := fmt.Sprintf("SELECT EXISTS (SELECT name FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
 	err := db.QueryRow(query).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
