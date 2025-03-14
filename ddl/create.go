@@ -38,7 +38,7 @@ func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) 
 	}
 
 	trimmedDefaultValue := strings.TrimSpace(defaultValue)
-	if strings.HasPrefix(trimmedDefaultValue, "'") && strings.HasSuffix(trimmedDefaultValue, "'") {
+	if strings.HasPrefix(trimmedDefaultValue, "'") || strings.HasSuffix(trimmedDefaultValue, "'") {
 		return defaultValue
 	}
 	//if end with )
@@ -548,7 +548,7 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 			}
 
 			if len(pdb.DefaultValue) > 0 {
-				alterStmt += " DEFAULT " + pdb.DefaultValue
+				alterStmt += " DEFAULT " + TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
 			}
 
 			if len(pdb.Reference) > 0 {
