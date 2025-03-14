@@ -38,8 +38,17 @@ func TryAddQuote2DefaultValue(dbdialect sqldb.TDBDialect, fieldType protoreflect
 	if strings.HasPrefix(trimmedDefaultValue, "'") && strings.HasSuffix(trimmedDefaultValue, "'") {
 		return defaultValue
 	}
+	//if end with )
+	if strings.HasSuffix(trimmedDefaultValue, ")") {
+		return defaultValue
+	}
 
-	return "'" + defaultValue + "'"
+	// Escape single quotes by replacing ' with ''
+	escapedString := strings.ReplaceAll(defaultValue, "'", "''")
+
+	// Surround the escaped string with single quotes
+	return "'" + escapedString + "'"
+
 }
 
 func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
