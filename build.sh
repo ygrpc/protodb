@@ -1,8 +1,9 @@
 #!/bin/bash
 
-protoc --go_out=. protodb.proto
-mv -f github.com/ygrpc/protodb/protodb.pb.go .
-rm -rf github.com
+protoc --go_out=paths=source_relative:. \
+  --connect-go_out=. --connect-go_opt=paths=source_relative,package_suffix="" \
+  protodb.proto
+
 
 if [ -d "../ygrpctest/cmd/protodb" ]; then
   echo "sync protodb.proto to ../ygrpctest/cmd/protodb/"

@@ -174,6 +174,38 @@ message CrudResp {
   bytes NewMsgBytes = 4;
 }
 
+message TableSelectReq {
+  string DbSchema = 1;
+  string TableName = 2;
+  // result column names
+  repeated string ResultColumnNames = 3;
+  // Fieldname == Value
+  map<string, string> Where = 4;
+  // limit 0:no limit
+  int32 Limit = 5;
+  int64 Offset = 6;
+  // prefer batch size
+  int32 PreferBatchSize = 7;
+}
+
+message TableSelectResp {
+  // response batch no
+  int64 ResponseNo = 1;
+  // if it is last response
+  bool ResponseEnd = 2;
+  // err info when error happened
+  string ErrInfo = 3;
+  repeated bytes MsgBytes = 4;
+}
+
+message  QueryReq {
+
+}
+
+message  QueryResp {
+
+}
+
 // protodb service
 service ProtoDbSrv {
   // crud
