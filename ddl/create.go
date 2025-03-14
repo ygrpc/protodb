@@ -243,12 +243,11 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 func GetRefTableName(reference string) (string, error) {
 	reference = strings.TrimPrefix(reference, " ")
-	before, _, _ := strings.Cut(reference, " ")
-	refList := strings.Split(before, ".")
-	if len(refList) < 2 {
+	tablename, _, found := strings.Cut(reference, "(")
+	if !found {
 		return "", fmt.Errorf("reference is not valid %s", reference)
 	}
-	return refList[len(refList)-2], nil
+	return tablename, nil
 }
 
 func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *sql.DB, withComment bool) error {
