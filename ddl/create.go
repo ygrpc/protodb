@@ -330,6 +330,10 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
+	if sqlInitSql, ok := builtInitSqlMap[tableName]; ok {
+		return sqlInitSql, nil
+	}
+
 	// Get database dialect
 	dbdialect := sqldb.GetDBDialect(db)
 
