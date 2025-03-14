@@ -54,16 +54,21 @@ func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) 
 
 }
 
-func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
+// checkRefference if check reference table
+// withComment if add comment for sql
+// builtInitSqlMap is a map to store all init sql, user should use a global map for speed up(no need generate init sql again)
+func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool, builtInitSqlMap map[string]*TDbTableInitSql) (sqlInitSql *TDbTableInitSql, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	return dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+	return dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
 }
 
-func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (sqlInitSql *TDbTableInitSql, err error) {
+func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName string,
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
+	builtInitSqlMap map[string]*TDbTableInitSql) (sqlInitSql *TDbTableInitSql, err error) {
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
 	if found {
 		if pdbm.NotDB {
@@ -293,13 +298,22 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 	if len(pdbdbtype) > 0 {
 		return pdbdbtype
 	} else {
-		fmt.Println("todo: getSqlTypeStr unknown db type for field:", fieldMsg.FullName(), " using default type text")
+		fmt.Println("getSqlTypeStr unknown db type for field:", fieldMsg.FullName(), " using default type text")
 		return "text"
 	}
 }
 
 // DbMigrateTable migrate a table to the definition of proto message
-func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool) (migrateItem *TDbTableInitSql, err error) {
+// msg can be a proto message
+// dbschema can be empty,use for pgsql schema
+// checkRefference if check reference table
+// withComment if add comment for sql
+// builtInitSqlMap is a map to store all init sql, user should use a global map for speed up(no need generate init sql again)
+func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkRefference bool, withComment bool, builtInitSqlMap map[string]*TDbTableInitSql) (migrateItem *TDbTableInitSql, err error) {
+	if builtInitSqlMap == nil {
+		return nil, errors.New("builtInitSqlMap cannot be nil")
+	}
+
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -318,11 +332,11 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 
 	switch dbdialect {
 	case sqldb.Postgres:
-		migrateItem, err = dbMigrateTablePostgres(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTablePostgres(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
 	case sqldb.Mysql:
-		migrateItem, err = dbMigrateTableMysql(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTableMysql(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
 	case sqldb.SQLite:
-		migrateItem, err = dbMigrateTableSQLite(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment)
+		migrateItem, err = dbMigrateTableSQLite(migrateItem, db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
 	default:
 		err = fmt.Errorf("not support database dialect %s", dbdialect.String())
 	}
@@ -346,7 +360,9 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 
 }
 
-func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
+func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors,
+	checkRefference bool, withComment bool, builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
 	if len(dbschema) == 0 {
 		dbschema = "public"
 		migrateItem.DbSchema = dbschema
@@ -440,7 +456,23 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 		//check dependency
 		if len(pdb.Reference) > 0 && checkRefference {
-			//todo check dependency and add it to migrateItem
+			depMsgName, err := GetRefTableName(pdb.Reference)
+			if err != nil {
+				return nil, fmt.Errorf("get reference table name %s err: %s", migrateItem.TableName, err)
+			}
+			if !isSqlInitItemExist(migrateItem, depMsgName, builtInitSqlMap) {
+				depMsg, found := msgstore.GetMsg(depMsgName, false)
+				if !found {
+					return nil, fmt.Errorf("reference table msg %s not found for %s", pdb.Reference, depMsgName)
+				}
+
+				depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
+				if err != nil {
+					return nil, err
+				}
+				migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
+				migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
+			}
 		}
 
 		if len(alterStatements) > 0 {
@@ -458,7 +490,32 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 	return migrateItem, nil
 }
-func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
+
+func isSqlInitItemExist(item *TDbTableInitSql, tableName string, existTableMap map[string]*TDbTableInitSql) bool {
+	if existTableMap == nil {
+		existTableMap = make(map[string]*TDbTableInitSql)
+	}
+
+	if tableName == item.TableName {
+		return true
+	}
+	if _, ok := existTableMap[tableName]; ok {
+		return true
+	}
+
+	for _, initSql := range item.DepTableSqlItemMap {
+		if isSqlInitItemExist(initSql, tableName, existTableMap) {
+			return true
+		}
+	}
+
+	existTableMap[tableName] = item
+	return false
+}
+
+func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
+	builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
 
 	return nil, fmt.Errorf("not support database dialect Mysql now")
 }
@@ -475,7 +532,8 @@ func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 }
 
 func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
-	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool) (return_migrateItem *TDbTableInitSql, err error) {
+	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
+	builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
 	dbtableName := dbschema + tableName
 
 	// Check if table exists
@@ -561,7 +619,21 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 		//check dependency
 		if len(pdb.Reference) > 0 && checkRefference {
-			//todo check dependency and add it to migrateItem
+			depMsgName, err := GetRefTableName(pdb.Reference)
+			if err != nil {
+				return nil, fmt.Errorf("get reference table name %s err: %s", migrateItem.TableName, err)
+			}
+			depMsg, found := msgstore.GetMsg(depMsgName, false)
+			if !found {
+				return nil, fmt.Errorf("reference table msg %s not found for %s", pdb.Reference, depMsgName)
+			}
+
+			depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
+			if err != nil {
+				return nil, err
+			}
+			migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
+			migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
 		}
 
 		if len(alterStatements) > 0 {
