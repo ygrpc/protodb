@@ -9,6 +9,7 @@ import (
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/crud"
 	"github.com/ygrpc/protodb/msgstore"
+	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"net/http"
 )
@@ -31,7 +32,8 @@ func FnTableQueryPermissionEmpty(meta http.Header, schemaName string, tableName 
 
 type TrpcManager struct {
 	protodb.UnimplementedProtoDbSrvHandler
-	FnGetCrudDb TfnGetCrudDb
+	FnGetDb TfnProtodbGetDb
+
 	// proto.message name => fn
 	FnCheckCrudPermission map[string]TfnProtodbCheckPermission
 
@@ -207,7 +209,88 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 }
 
 func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[protodb.TableQueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("protodb.ProtoDbSrv.TableQuery is not implemented"))
+	meta := req.Header()
+	TableQueryReq := req.Msg
+
+	if this.FnGetDb == nil {
+		return connect.NewError(connect.CodeInternal, errors.New("FnGetDb is nil"))
+	}
+
+	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName)
+	if err != nil {
+		return err
+	}
+
+	dbmsg, ok := msgstore.GetMsg(TableQueryReq.TableName, false)
+	if !ok {
+		return fmt.Errorf("can not get proto msg %s err", TableQueryReq.TableName)
+	}
+
+	permissionSqlStr := ""
+
+	permissionFn, ok := this.FnTableQueryPermission[TableQueryReq.TableName]
+	if ok {
+		permissionSqlStr, err = permissionFn(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
+		if err != nil {
+			return connect.NewError(connect.CodeInternal, err)
+		}
+	}
+
+	batchSize := TableQueryReq.PreferBatchSize
+	if batchSize <= 0 || batchSize > 100 {
+		batchSize = 1
+	}
+	resultCh := make(chan crud.TqueryItem, batchSize)
+
+	err = crud.DbTableQuery(db, dbmsg, TableQueryReq.Where, TableQueryReq.ResultColumnNames, TableQueryReq.SchemeName, TableQueryReq.TableName, permissionSqlStr, resultCh)
+	if err != nil {
+		return fmt.Errorf("table query msg %s err: %w", TableQueryReq.TableName, err)
+	}
+
+	var responseNo int64 = 0
+	msgBytes := make([][]byte, 0)
+
+	var tmpQueryResp *protodb.QueryResp
+
+	for item := range resultCh {
+		if item.Err != nil {
+			return connect.NewError(connect.CodeInternal, errors.New(*item.Err))
+		}
+
+		var tmpMarshalByte []byte
+		if TableQueryReq.MsgFormat == 0 {
+			tmpMarshalByte, err = proto.Marshal(item.Msg)
+			if err != nil {
+				return fmt.Errorf("marshal bytes error: %w", err)
+			}
+		} else {
+			tmpMarshalByte, err = protojson.Marshal(item.Msg)
+			if err != nil {
+				return fmt.Errorf("marshal json error: %w", err)
+			}
+		}
+
+		msgBytes = append(msgBytes, tmpMarshalByte)
+		if len(msgBytes) >= int(batchSize) || item.IsEnd {
+			tmpQueryResp = &protodb.QueryResp{
+				ResponseNo: responseNo,
+				MsgBytes:   msgBytes,
+				MsgFormat:  TableQueryReq.MsgFormat,
+			}
+			if item.IsEnd {
+				tmpQueryResp.ResponseEnd = true
+			}
+			err = ss.Send(tmpQueryResp)
+			if err != nil {
+				return fmt.Errorf("send msg fail, %w", err)
+			}
+			msgBytes = make([][]byte, batchSize)
+			responseNo++
+		}
+	}
+
+	return nil
+
 }
 
 func (this *TrpcManager) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
