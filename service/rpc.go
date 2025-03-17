@@ -13,21 +13,36 @@ import (
 	"net/http"
 )
 
-type TfnGetCrudDb func(meta http.Header, crudReq *protodb.CrudReq) (db *sql.DB, err error)
+type TfnProtodbGetDb func(meta http.Header, schemaName string) (db *sql.DB, err error)
 
-type TfnCheckCrudPermission func(meta http.Header, crudReq *protodb.CrudReq, db *sql.DB, dbmsg proto.Message) (err error)
+type TfnProtodbCheckPermission func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error)
+
+// FnProtodbCheckPermissionEmpty allow all crud operation
+func FnProtodbCheckPermissionEmpty(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error) {
+	return nil
+}
+
+type TfnTableQueryPermission func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error)
+
+// FnTableQueryPermissionEmpty empty where, allow query all rows
+func FnTableQueryPermissionEmpty(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error) {
+	return "", nil
+}
 
 type TrpcManager struct {
 	protodb.UnimplementedProtoDbSrvHandler
 	FnGetCrudDb TfnGetCrudDb
 	// proto.message name => fn
-	FnCheckCrudPermission map[string]TfnCheckCrudPermission
+	FnCheckCrudPermission map[string]TfnProtodbCheckPermission
+
+	// table name => fn
+	FnTableQueryPermission map[string]TfnTableQueryPermission
 }
 
 // NewTrpcManager create new manager for rpc
-func NewTrpcManager(fnGetCrudDb TfnGetCrudDb, fnCheckCrudPermission map[string]TfnCheckCrudPermission) *TrpcManager {
+func NewTrpcManager(fnGetCrudDb TfnProtodbGetDb, fnCheckCrudPermission map[string]TfnProtodbCheckPermission) *TrpcManager {
 	return &TrpcManager{
-		FnGetCrudDb:           fnGetCrudDb,
+		FnGetDb:               fnGetCrudDb,
 		FnCheckCrudPermission: fnCheckCrudPermission,
 	}
 }
@@ -36,10 +51,10 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 	meta := req.Header()
 	CrudMsg := req.Msg
 
-	if this.FnGetCrudDb == nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("FnGetCrudDb is nil"))
+	if this.FnGetDb == nil {
+		return nil, connect.NewError(connect.CodeInternal, errors.New("FnGetDb is nil"))
 	}
-	db, err := this.FnGetCrudDb(meta, CrudMsg)
+	db, err := this.FnGetDb(meta, CrudMsg.SchemeName)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +72,7 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 
 	if this.FnCheckCrudPermission != nil {
 		if fncheck, ok := this.FnCheckCrudPermission[CrudMsg.TableName]; ok {
-			err = fncheck(meta, CrudMsg, db, dbmsg)
+			err = fncheck(meta, CrudMsg.SchemeName, CrudMsg.Code, db, dbmsg)
 			if err != nil {
 				return nil, connect.NewError(connect.CodePermissionDenied, err)
 			}

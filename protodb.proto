@@ -139,6 +139,7 @@ enum CrudReqCode {
   PARTIALUPDATE = 2;
   DELETE = 3;
   SELECTONE = 4;
+  QUERY = 5;
 }
 
 // crud result type for return
@@ -181,7 +182,7 @@ message CrudResp {
 }
 
 message TableQueryReq {
-  string DbSchema = 1;
+  string SchemeName = 1;
   string TableName = 2;
   // result column names, need same as proto msg field name
   repeated string ResultColumnNames = 3;
