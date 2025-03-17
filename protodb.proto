@@ -160,6 +160,8 @@ message CrudReq {
   bytes MsgBytes = 5;
   repeated string PartialUpdateFields = 6;
   repeated string SelectResultFields = 7;
+  // msg format 0:protobuf 1:protobuf json
+  int32 MsgFormat = 8;
 }
 
 // Crud response
@@ -172,12 +174,14 @@ message CrudResp {
   bytes OldMsgBytes = 3;
   //new row as msg
   bytes NewMsgBytes = 4;
+  // msg format 0:protobuf 1:protobuf json
+  int32 MsgFormat = 8;
 }
 
-message TableSelectReq {
+message TableQueryReq {
   string DbSchema = 1;
   string TableName = 2;
-  // result column names
+  // result column names, need same as proto msg field name
   repeated string ResultColumnNames = 3;
   // Fieldname == Value
   map<string, string> Where = 4;
@@ -186,32 +190,46 @@ message TableSelectReq {
   int64 Offset = 6;
   // prefer batch size
   int32 PreferBatchSize = 7;
+  // msg format 0:protobuf 1:protobuf json
+  int32 MsgFormat = 8;
 }
 
-message TableSelectResp {
-  // response batch no
+message QueryResp {
+  // response batch no, start from 0
   int64 ResponseNo = 1;
   // if it is last response
   bool ResponseEnd = 2;
   // err info when error happened
   string ErrInfo = 3;
   repeated bytes MsgBytes = 4;
+  // msg format 0:protobuf 1:protobuf json
+  int32 MsgFormat = 8;
 }
 
 message  QueryReq {
-
-}
-
-message  QueryResp {
-
+  // history sql
+  string QueryName = 1;
+  // result column names, need same as proto msg field name
+  repeated string ResultColumnNames = 3;
+  // sql where condition Fieldname == Value
+  map<string, string> Where = 4;
+  // custom where protobuf msg bytes
+  bytes WhereMsgBytes = 5;
+  // limit 0:no limit
+  int32 Limit = 6;
+  int64 Offset = 7;
+  // prefer batch size
+  int32 PreferBatchSize = 8;
+  // msg format 0:protobuf 1:protobuf json
+  int32 MsgFormat = 9;
 }
 
 // protodb service
 service ProtoDbSrv {
   // crud
   rpc Crud(CrudReq) returns (CrudResp) {};
-  // table select
-  rpc TableSelect(TableSelectReq) returns (stream TableSelectResp) {};
-  // query
+  // table query
+  rpc TableQuery(TableQueryReq) returns (stream QueryResp) {};
+  // general query
   rpc Query(QueryReq) returns (stream QueryResp) {};
 }

@@ -34,8 +34,8 @@ const (
 const (
 	// ProtoDbSrvCrudProcedure is the fully-qualified name of the ProtoDbSrv's Crud RPC.
 	ProtoDbSrvCrudProcedure = "/protodb.ProtoDbSrv/Crud"
-	// ProtoDbSrvTableSelectProcedure is the fully-qualified name of the ProtoDbSrv's TableSelect RPC.
-	ProtoDbSrvTableSelectProcedure = "/protodb.ProtoDbSrv/TableSelect"
+	// ProtoDbSrvTableQueryProcedure is the fully-qualified name of the ProtoDbSrv's TableQuery RPC.
+	ProtoDbSrvTableQueryProcedure = "/protodb.ProtoDbSrv/TableQuery"
 	// ProtoDbSrvQueryProcedure is the fully-qualified name of the ProtoDbSrv's Query RPC.
 	ProtoDbSrvQueryProcedure = "/protodb.ProtoDbSrv/Query"
 )
@@ -44,9 +44,9 @@ const (
 type ProtoDbSrvClient interface {
 	// crud
 	Crud(context.Context, *connect.Request[CrudReq]) (*connect.Response[CrudResp], error)
-	// table select
-	TableSelect(context.Context, *connect.Request[TableSelectReq]) (*connect.ServerStreamForClient[TableSelectResp], error)
-	// query
+	// table query
+	TableQuery(context.Context, *connect.Request[TableQueryReq]) (*connect.ServerStreamForClient[QueryResp], error)
+	// general query
 	Query(context.Context, *connect.Request[QueryReq]) (*connect.ServerStreamForClient[QueryResp], error)
 }
 
@@ -67,10 +67,10 @@ func NewProtoDbSrvClient(httpClient connect.HTTPClient, baseURL string, opts ...
 			connect.WithSchema(protoDbSrvMethods.ByName("Crud")),
 			connect.WithClientOptions(opts...),
 		),
-		tableSelect: connect.NewClient[TableSelectReq, TableSelectResp](
+		tableQuery: connect.NewClient[TableQueryReq, QueryResp](
 			httpClient,
-			baseURL+ProtoDbSrvTableSelectProcedure,
-			connect.WithSchema(protoDbSrvMethods.ByName("TableSelect")),
+			baseURL+ProtoDbSrvTableQueryProcedure,
+			connect.WithSchema(protoDbSrvMethods.ByName("TableQuery")),
 			connect.WithClientOptions(opts...),
 		),
 		query: connect.NewClient[QueryReq, QueryResp](
@@ -84,9 +84,9 @@ func NewProtoDbSrvClient(httpClient connect.HTTPClient, baseURL string, opts ...
 
 // protoDbSrvClient implements ProtoDbSrvClient.
 type protoDbSrvClient struct {
-	crud        *connect.Client[CrudReq, CrudResp]
-	tableSelect *connect.Client[TableSelectReq, TableSelectResp]
-	query       *connect.Client[QueryReq, QueryResp]
+	crud       *connect.Client[CrudReq, CrudResp]
+	tableQuery *connect.Client[TableQueryReq, QueryResp]
+	query      *connect.Client[QueryReq, QueryResp]
 }
 
 // Crud calls protodb.ProtoDbSrv.Crud.
@@ -94,9 +94,9 @@ func (c *protoDbSrvClient) Crud(ctx context.Context, req *connect.Request[CrudRe
 	return c.crud.CallUnary(ctx, req)
 }
 
-// TableSelect calls protodb.ProtoDbSrv.TableSelect.
-func (c *protoDbSrvClient) TableSelect(ctx context.Context, req *connect.Request[TableSelectReq]) (*connect.ServerStreamForClient[TableSelectResp], error) {
-	return c.tableSelect.CallServerStream(ctx, req)
+// TableQuery calls protodb.ProtoDbSrv.TableQuery.
+func (c *protoDbSrvClient) TableQuery(ctx context.Context, req *connect.Request[TableQueryReq]) (*connect.ServerStreamForClient[QueryResp], error) {
+	return c.tableQuery.CallServerStream(ctx, req)
 }
 
 // Query calls protodb.ProtoDbSrv.Query.
@@ -108,9 +108,9 @@ func (c *protoDbSrvClient) Query(ctx context.Context, req *connect.Request[Query
 type ProtoDbSrvHandler interface {
 	// crud
 	Crud(context.Context, *connect.Request[CrudReq]) (*connect.Response[CrudResp], error)
-	// table select
-	TableSelect(context.Context, *connect.Request[TableSelectReq], *connect.ServerStream[TableSelectResp]) error
-	// query
+	// table query
+	TableQuery(context.Context, *connect.Request[TableQueryReq], *connect.ServerStream[QueryResp]) error
+	// general query
 	Query(context.Context, *connect.Request[QueryReq], *connect.ServerStream[QueryResp]) error
 }
 
@@ -127,10 +127,10 @@ func NewProtoDbSrvHandler(svc ProtoDbSrvHandler, opts ...connect.HandlerOption) 
 		connect.WithSchema(protoDbSrvMethods.ByName("Crud")),
 		connect.WithHandlerOptions(opts...),
 	)
-	protoDbSrvTableSelectHandler := connect.NewServerStreamHandler(
-		ProtoDbSrvTableSelectProcedure,
-		svc.TableSelect,
-		connect.WithSchema(protoDbSrvMethods.ByName("TableSelect")),
+	protoDbSrvTableQueryHandler := connect.NewServerStreamHandler(
+		ProtoDbSrvTableQueryProcedure,
+		svc.TableQuery,
+		connect.WithSchema(protoDbSrvMethods.ByName("TableQuery")),
 		connect.WithHandlerOptions(opts...),
 	)
 	protoDbSrvQueryHandler := connect.NewServerStreamHandler(
@@ -143,8 +143,8 @@ func NewProtoDbSrvHandler(svc ProtoDbSrvHandler, opts ...connect.HandlerOption) 
 		switch r.URL.Path {
 		case ProtoDbSrvCrudProcedure:
 			protoDbSrvCrudHandler.ServeHTTP(w, r)
-		case ProtoDbSrvTableSelectProcedure:
-			protoDbSrvTableSelectHandler.ServeHTTP(w, r)
+		case ProtoDbSrvTableQueryProcedure:
+			protoDbSrvTableQueryHandler.ServeHTTP(w, r)
 		case ProtoDbSrvQueryProcedure:
 			protoDbSrvQueryHandler.ServeHTTP(w, r)
 		default:
@@ -160,8 +160,8 @@ func (UnimplementedProtoDbSrvHandler) Crud(context.Context, *connect.Request[Cru
 	return nil, connect.NewError(connect.CodeUnimplemented, errors.New("protodb.ProtoDbSrv.Crud is not implemented"))
 }
 
-func (UnimplementedProtoDbSrvHandler) TableSelect(context.Context, *connect.Request[TableSelectReq], *connect.ServerStream[TableSelectResp]) error {
-	return connect.NewError(connect.CodeUnimplemented, errors.New("protodb.ProtoDbSrv.TableSelect is not implemented"))
+func (UnimplementedProtoDbSrvHandler) TableQuery(context.Context, *connect.Request[TableQueryReq], *connect.ServerStream[QueryResp]) error {
+	return connect.NewError(connect.CodeUnimplemented, errors.New("protodb.ProtoDbSrv.TableQuery is not implemented"))
 }
 
 func (UnimplementedProtoDbSrvHandler) Query(context.Context, *connect.Request[QueryReq], *connect.ServerStream[QueryResp]) error {
