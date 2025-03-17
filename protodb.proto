@@ -158,10 +158,12 @@ message CrudReq {
   string SchemeName = 3;
   string TableName = 4;
   bytes MsgBytes = 5;
-  repeated string PartialUpdateFields = 6;
-  repeated string SelectResultFields = 7;
   // msg format 0:protobuf 1:protobuf json
-  int32 MsgFormat = 8;
+  int32 MsgFormat = 6;
+  int32 MsgLastFieldNo = 7;
+  repeated string PartialUpdateFields = 8;
+  repeated string SelectResultFields = 9;
+  repeated string SelectOneKeyFields = 10;
 }
 
 // Crud response
