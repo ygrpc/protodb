@@ -14,12 +14,17 @@ import (
 	"net/http"
 )
 
-type TfnProtodbGetDb func(meta http.Header, schemaName string) (db *sql.DB, err error)
+type TfnProtodbGetDb func(meta http.Header, schemaName string, tableName string) (db *sql.DB, err error)
 
-type TfnProtodbCheckPermission func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error)
+// FnProtodbGetDbEmpty return nil
+func FnProtodbGetDbEmpty(meta http.Header, schemaName string, tableName string) (db *sql.DB, err error) {
+	return nil, errors.New("FnProtodbGetDbEmpty")
+}
 
-// FnProtodbCheckPermissionEmpty allow all crud operation
-func FnProtodbCheckPermissionEmpty(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error) {
+type TfnProtodbCrudPermission func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error)
+
+// FnProtodbCrudPermissionEmpty allow all crud operation
+func FnProtodbCrudPermissionEmpty(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error) {
 	return nil
 }
 
@@ -35,17 +40,31 @@ type TrpcManager struct {
 	FnGetDb TfnProtodbGetDb
 
 	// proto.message name => fn
-	FnCheckCrudPermission map[string]TfnProtodbCheckPermission
+	// must set for every protodb message, if no fn for a message, set to nil
+	fnCrudPermissionMap map[string]TfnProtodbCrudPermission
 
 	// table name => fn
-	FnTableQueryPermission map[string]TfnTableQueryPermission
+	// must set for every table, if no fn for a table, set to nil
+	fnTableQueryPermissionMap map[string]TfnTableQueryPermission
 }
 
 // NewTrpcManager create new manager for rpc
-func NewTrpcManager(fnGetCrudDb TfnProtodbGetDb, fnCheckCrudPermission map[string]TfnProtodbCheckPermission) *TrpcManager {
+func NewTrpcManager(fnGetCrudDb TfnProtodbGetDb, fnCrudPermission map[string]TfnProtodbCrudPermission,
+	fnTableQueryPermission map[string]TfnTableQueryPermission) *TrpcManager {
+	// set default value
+	if fnGetCrudDb == nil {
+		fnGetCrudDb = FnProtodbGetDbEmpty
+	}
+	if fnCrudPermission == nil {
+		fnCrudPermission = make(map[string]TfnProtodbCrudPermission)
+	}
+	if fnTableQueryPermission == nil {
+		fnTableQueryPermission = make(map[string]TfnTableQueryPermission)
+	}
 	return &TrpcManager{
-		FnGetDb:               fnGetCrudDb,
-		FnCheckCrudPermission: fnCheckCrudPermission,
+		FnGetDb:                   fnGetCrudDb,
+		fnCrudPermissionMap:       fnCrudPermission,
+		fnTableQueryPermissionMap: fnTableQueryPermission,
 	}
 }
 
@@ -53,10 +72,7 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 	meta := req.Header()
 	CrudMsg := req.Msg
 
-	if this.FnGetDb == nil {
-		return nil, connect.NewError(connect.CodeInternal, errors.New("FnGetDb is nil"))
-	}
-	db, err := this.FnGetDb(meta, CrudMsg.SchemeName)
+	db, err := this.FnGetDb(meta, CrudMsg.SchemeName, CrudMsg.TableName)
 	if err != nil {
 		return nil, err
 	}
@@ -72,13 +88,15 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 		return nil, fmt.Errorf("unmarshal msg %s err: %w", CrudMsg.TableName, err)
 	}
 
-	if this.FnCheckCrudPermission != nil {
-		if fncheck, ok := this.FnCheckCrudPermission[CrudMsg.TableName]; ok {
-			err = fncheck(meta, CrudMsg.SchemeName, CrudMsg.Code, db, dbmsg)
+	if fnCrudPermission, ok := this.fnCrudPermissionMap[CrudMsg.TableName]; ok {
+		if fnCrudPermission != nil {
+			err = fnCrudPermission(meta, CrudMsg.SchemeName, CrudMsg.Code, db, dbmsg)
 			if err != nil {
 				return nil, connect.NewError(connect.CodePermissionDenied, err)
 			}
 		}
+	} else {
+		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName))
 	}
 
 	switch CrudMsg.Code {
@@ -212,32 +230,32 @@ func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[pr
 	meta := req.Header()
 	TableQueryReq := req.Msg
 
-	if this.FnGetDb == nil {
-		return connect.NewError(connect.CodeInternal, errors.New("FnGetDb is nil"))
-	}
-
-	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName)
+	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName, TableQueryReq.TableName)
 	if err != nil {
 		return err
 	}
 
 	dbmsg, ok := msgstore.GetMsg(TableQueryReq.TableName, false)
 	if !ok {
-		return fmt.Errorf("can not get proto msg %s err", TableQueryReq.TableName)
+		return fmt.Errorf("can not get protodb msg %s err", TableQueryReq.TableName)
 	}
 
 	permissionSqlStr := ""
 
-	permissionFn, ok := this.FnTableQueryPermission[TableQueryReq.TableName]
+	permissionFn, ok := this.fnTableQueryPermissionMap[TableQueryReq.TableName]
 	if ok {
-		permissionSqlStr, err = permissionFn(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
-		if err != nil {
-			return connect.NewError(connect.CodeInternal, err)
+		if permissionFn != nil {
+			permissionSqlStr, err = permissionFn(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
+			if err != nil {
+				return connect.NewError(connect.CodeInternal, err)
+			}
 		}
+	} else {
+		return connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no permission check function for table %s", TableQueryReq.TableName))
 	}
 
 	batchSize := TableQueryReq.PreferBatchSize
-	if batchSize <= 0 || batchSize > 100 {
+	if batchSize <= 0 || batchSize > 10000 {
 		batchSize = 1
 	}
 	resultCh := make(chan crud.TqueryItem, batchSize)
