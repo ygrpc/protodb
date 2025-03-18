@@ -14,10 +14,15 @@ import (
 	"net/http"
 )
 
-type TfnProtodbGetDb func(meta http.Header, schemaName string, tableName string) (db *sql.DB, err error)
+// TfnProtodbGetDb get db for db operation
+// meta http header
+// schemaName schema name
+// tableName table name
+// writable if db is writable
+type TfnProtodbGetDb func(meta http.Header, schemaName string, tableName string, writable bool) (db *sql.DB, err error)
 
 // FnProtodbGetDbEmpty return nil
-func FnProtodbGetDbEmpty(meta http.Header, schemaName string, tableName string) (db *sql.DB, err error) {
+func FnProtodbGetDbEmpty(meta http.Header, schemaName string, tableName string, writable bool) (db *sql.DB, err error) {
 	return nil, errors.New("FnProtodbGetDbEmpty")
 }
 
@@ -72,7 +77,7 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 	meta := req.Header()
 	CrudMsg := req.Msg
 
-	db, err := this.FnGetDb(meta, CrudMsg.SchemeName, CrudMsg.TableName)
+	db, err := this.FnGetDb(meta, CrudMsg.SchemeName, CrudMsg.TableName, true)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +235,7 @@ func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[pr
 	meta := req.Header()
 	TableQueryReq := req.Msg
 
-	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName, TableQueryReq.TableName)
+	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, false)
 	if err != nil {
 		return err
 	}
