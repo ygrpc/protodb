@@ -651,11 +651,10 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 			migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
 			migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
 		}
+	}
 
-		if len(alterStatements) > 0 {
-			migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
-		}
-
+	if len(alterStatements) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
