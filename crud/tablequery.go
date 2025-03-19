@@ -10,7 +10,6 @@ import (
 	"github.com/ygrpc/protodb/protosql"
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
-	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
 type TqueryItem struct {
@@ -31,139 +30,105 @@ func DbTableQuery(db *sql.DB, msg proto.Message, where map[string]string, result
 	go dbTableQueryRoutine(db, msg, where, resultColumns, schemaName, tableName, permissionSqlStr, resultCh)
 	return nil
 }
-func dbTableQueryRoutine(db *sql.DB, msg proto.Message, where map[string]string, resultColumns []string, schemaName string, tableName string, permissionSqlStr string, resultCh chan TqueryItem) {
+func dbTableQueryRoutine(db *sql.DB, msg proto.Message, where map[string]string, resultColumns []string,
+	schemaName string, tableName string, permissionSqlStr string, resultCh chan TqueryItem) {
 	defer close(resultCh)
+
+	// Helper function to send error and return
+	sendError := func(err error) {
+		errStr := err.Error()
+		resultCh <- TqueryItem{
+			Err:   &errStr,
+			IsEnd: true,
+		}
+	}
 
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
-	msgFieldDescs := msgDesc.Fields()
 	dbdialect := sqldb.GetDBDialect(db)
 
-	sqlStr, sqlVals, err := dbBuildSqlTableQuery(msg, where, resultColumns, schemaName, tableName, msgDesc, msgFieldDescs, dbdialect, permissionSqlStr)
+	// Build SQL query
+	sqlStr, sqlVals, err := dbBuildSqlTableQuery(where, resultColumns, schemaName, tableName, dbdialect, permissionSqlStr)
 	if err != nil {
-		errStr := err.Error()
-		resultCh <- TqueryItem{
-			Err:   &errStr,
-			IsEnd: true,
-		}
+		sendError(err)
 		return
 	}
 
+	// Execute query
 	rows, err := db.Query(sqlStr, sqlVals...)
 	if err != nil {
-		errStr := err.Error()
-		resultCh <- TqueryItem{
-			Err:   &errStr,
-			IsEnd: true,
-		}
+		sendError(err)
 		return
 	}
 	defer rows.Close()
 
-	// Prepare field map for scanning
-	var msgFieldsMap map[string]protoreflect.FieldDescriptor
-	if len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*") {
-		msgFieldsMap = pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
-	} else {
-		msgFieldsMap = pdbutil.BuildMsgFieldsMap(resultColumns, msgDesc.Fields(), true)
+	// Determine which fields to scan
+	useAllFields := len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*")
+	fieldNames := resultColumns
+	if useAllFields {
+		fieldNames = nil
 	}
 
-	var rowMsg proto.Message
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
 
-	//isEnd := false
-	ok := false
+	msg = nil
 
-	if rows.Next() {
-		rowMsg, ok = msgstore.GetMsg(tableName, true)
-		if ok != true {
-			errStr := fmt.Errorf("can not get protodb msg %s err", tableName).Error()
-			resultCh <- TqueryItem{
-				Err:   &errStr,
-				IsEnd: true,
-			}
-			return
-		}
-
-		// Scan the row into the message
-		if len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*") {
-			err = DbScan2ProtoMsg(rows, rowMsg, nil, msgFieldsMap)
-		} else {
-			err = DbScan2ProtoMsg(rows, rowMsg, resultColumns, msgFieldsMap)
-		}
-
-		if err != nil {
-			errStr := err.Error()
-			resultCh <- TqueryItem{
-				Err:   &errStr,
-				IsEnd: true,
-			}
-			return
-		}
-	}
-	// Check for errors from iterating over rows
-	if err = rows.Err(); err != nil {
-		errStr := err.Error()
-		resultCh <- TqueryItem{
-			Err:   &errStr,
-			IsEnd: true,
-		}
-		return
-	}
-
-	// Process each row
+	// Process rows
+	isFirstRow := true
 	for rows.Next() {
-		// Send previous message
-		resultCh <- TqueryItem{
-			Msg:   rowMsg,
-			IsEnd: false,
-		}
-
-		// Create a new message instance for each row
-		rowMsg, _ = msgstore.GetMsg(tableName, true)
-
-		// Scan the row into the message
-		if len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*") {
-			err = DbScan2ProtoMsg(rows, rowMsg, nil, msgFieldsMap)
-		} else {
-			err = DbScan2ProtoMsg(rows, rowMsg, resultColumns, msgFieldsMap)
-		}
-
-		if err != nil {
-			errStr := err.Error()
-			resultCh <- TqueryItem{
-				Err:   &errStr,
-				IsEnd: true,
-			}
+		// Create new message instance
+		rowMsg, ok := msgstore.GetMsg(tableName, true)
+		if !ok {
+			sendError(fmt.Errorf("cannot get protodb msg %s", tableName))
 			return
 		}
 
+		// Scan row data
+		err = DbScan2ProtoMsg(rows, rowMsg,
+			fieldNames,
+			msgFieldsMap,
+		)
+		if err != nil {
+			sendError(err)
+			return
+		}
+
+		// Send previous row (except for first iteration)
+		if !isFirstRow {
+			resultCh <- TqueryItem{
+				Msg:   msg,
+				IsEnd: false,
+			}
+		}
+		isFirstRow = false
+
+		// Save current message for next iteration or final send
+		msg = rowMsg
 	}
 
-	// Check for errors from iterating over rows
+	// Check for errors from row iteration
 	if err = rows.Err(); err != nil {
-		errStr := err.Error()
-		resultCh <- TqueryItem{
-			Err:   &errStr,
-			IsEnd: true,
-		}
+		sendError(err)
 		return
 	}
 
-	// Send final item indicating end of results
+	// Send final result
 	resultCh <- TqueryItem{
+		Msg:   msg,
 		IsEnd: true,
-		Msg:   rowMsg,
 	}
-	return
-
 }
 
 // dbBuildSqlTableQuery builds a SQL query for table query
-func dbBuildSqlTableQuery(msg proto.Message, where map[string]string, resultColumns []string, schemaName string, tableName string,
-	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors,
-	dbdialect sqldb.TDBDialect,
-	permissionSqlStr string) (sqlStr string, sqlVals []interface{}, err error) {
+func dbBuildSqlTableQuery(where map[string]string, resultColumns []string, schemaName string, tableName string, dbdialect sqldb.TDBDialect, permissionSqlStr string) (sqlStr string, sqlVals []interface{}, err error) {
+
+	//check resultColumns
+	if len(resultColumns) > 0 {
+		err = checkSQLColumnsIsNoInjection(resultColumns)
+		if err != nil {
+			return "", nil, fmt.Errorf("check resultColumns err: %w", err)
+		}
+	}
 
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_SELECT)
