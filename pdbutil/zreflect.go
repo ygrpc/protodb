@@ -175,7 +175,13 @@ func SetField(obj interface{}, name string, value interface{}) error {
 					val = reflect.ValueOf(s)
 				}
 				goto SETVALUE
-
+			case "*interface {}":
+				ptr := value.(*any)
+				v, ok := (*ptr).(string)
+				if ok {
+					val = reflect.ValueOf(v)
+					goto SETVALUE
+				}
 			}
 		case reflect.Int32:
 			switch val.Type().Kind() {
