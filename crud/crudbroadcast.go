@@ -45,9 +45,24 @@ func (this *TcrudBroadcaster) RegisterBroadcastByCode(msgName string, crudCode p
 
 	fns = append(fns, fnCrudBroadcastHandler)
 	msgFnMaps.Store(msgName, fns)
+}
 
-	return
-
+func (this *TcrudBroadcaster) UnregisterBroadcastByCode(msgName string, crudCode protodb.CrudReqCode, fnCrudBroadcastHandler TfnCrudBroadcastHandler) {
+	msgFnMaps, ok := this.fnCrudBroadcastByCodeMap.Load(crudCode)
+	if !ok {
+		return
+	}
+	fns, ok := msgFnMaps.Load(msgName)
+	if !ok {
+		return
+	}
+	for i, fn := range fns {
+		if &fn == &fnCrudBroadcastHandler {
+			fns = append(fns[:i], fns[i+1:]...)
+			msgFnMaps.Store(msgName, fns)
+			return
+		}
+	}
 }
 
 // RegisterBroadcast register a broadcast to broadcastStore, will receive all crud operation broadcast
@@ -61,10 +76,23 @@ func (this *TcrudBroadcaster) RegisterBroadcast(msgName string, fnCrudBroadcastH
 
 	fns = append(fns, fnCrudBroadcastHandler)
 	this.fnCrudBroadcastMap.Store(msgName, fns)
-	return
 }
 
-// Broadcast broadcast a crud operation
+func (this *TcrudBroadcaster) UnregisterBroadcast(msgName string, fnCrudBroadcastHandler TfnCrudBroadcastHandler) {
+	fns, ok := this.fnCrudBroadcastMap.Load(msgName)
+	if !ok {
+		return
+	}
+	for i, fn := range fns {
+		if &fn == &fnCrudBroadcastHandler {
+			fns = append(fns[:i], fns[i+1:]...)
+			this.fnCrudBroadcastMap.Store(msgName, fns)
+			return
+		}
+	}
+}
+
+// Broadcast a crud operation
 func (this *TcrudBroadcaster) Broadcast(meta http.Header, db *sql.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
 	fns, _ := this.fnCrudBroadcastMap.Load(req.TableName)
 	if len(fns) > 0 {
