@@ -3,13 +3,9 @@ package crud
 import (
 	"database/sql"
 	"fmt"
-	"net/http"
 	"strings"
 
-	"github.com/ygrpc/protodb/msgstore"
-
 	"github.com/ygrpc/protodb"
-	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
@@ -21,118 +17,10 @@ type TqueryItem struct {
 	Msg   proto.Message
 }
 
-func DbTableQueryBuildSql(meta http.Header, db *sql.DB, msg proto.Message, tableQueryReq *protodb.TableQueryReq) (sqlStr string, sqlVals []interface{}, err error) {
-
-	return
-}
-
-// DbTableQuery executes a query against the database and streams results through the provided channel
-func DbTableQuery(db *sql.DB, msg proto.Message, where map[string]string, resultColumns []string, schemaName string, tableName string, permissionSqlStr string, resultCh chan TqueryItem) (err error) {
-
-	if len(resultColumns) > 0 {
-		err = checkSQLColumnsIsNoInjection(resultColumns)
-		if err != nil {
-			return err
-		}
-	}
-	go dbTableQueryRoutine(db, msg, where, resultColumns, schemaName, tableName, permissionSqlStr, resultCh)
-	return nil
-}
-func dbTableQueryRoutine(db *sql.DB, msg proto.Message, where map[string]string, resultColumns []string,
-	schemaName string, tableName string, permissionSqlStr string, resultCh chan TqueryItem) {
-	defer close(resultCh)
-
-	// Helper function to send error and return
-	sendError := func(err error) {
-		errStr := err.Error()
-		resultCh <- TqueryItem{
-			Err:   &errStr,
-			IsEnd: true,
-		}
-	}
-
-	msgPm := msg.ProtoReflect()
-	msgDesc := msgPm.Descriptor()
-	dbdialect := sqldb.GetDBDialect(db)
-
-	// Build SQL query
-	sqlStr, sqlVals, err := dbBuildSqlTableQuery(where, resultColumns, schemaName, tableName, dbdialect, permissionSqlStr)
-	if err != nil {
-		sendError(err)
-		return
-	}
-
-	// Execute query
-	rows, err := db.Query(sqlStr, sqlVals...)
-	if err != nil {
-		sendError(err)
-		return
-	}
-	defer rows.Close()
-
-	// Determine which fields to scan
-	useAllFields := len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*")
-	fieldNames := resultColumns
-	if useAllFields {
-		fieldNames = nil
-	}
-
-	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
-
-	msg = nil
-
-	// Process rows
-	isFirstRow := true
-	for rows.Next() {
-		// Create new message instance
-		rowMsg, ok := msgstore.GetMsg(tableName, true)
-		if !ok {
-			sendError(fmt.Errorf("cannot get protodb msg %s", tableName))
-			return
-		}
-
-		// Scan row data
-		err = DbScan2ProtoMsg(rows, rowMsg,
-			fieldNames,
-			msgFieldsMap,
-		)
-		if err != nil {
-			sendError(err)
-			return
-		}
-
-		// Send previous row (except for first iteration)
-		if !isFirstRow {
-			resultCh <- TqueryItem{
-				Msg:   msg,
-				IsEnd: false,
-			}
-		}
-		isFirstRow = false
-
-		// Save current message for next iteration or final send
-		msg = rowMsg
-	}
-
-	// Check for errors from row iteration
-	if err = rows.Err(); err != nil {
-		sendError(err)
-		return
-	}
-
-	// Send final result
-	resultCh <- TqueryItem{
-		Msg:   msg,
-		IsEnd: true,
-	}
-}
-
-// dbBuildSqlTableQuery builds a SQL query for table query
-func dbBuildSqlTableQuery(where map[string]string, resultColumns []string, schemaName string, tableName string, dbdialect sqldb.TDBDialect, permissionSqlStr string) (sqlStr string, sqlVals []interface{}, err error) {
-
-	//check resultColumns
-	if len(resultColumns) > 0 {
-		err = checkSQLColumnsIsNoInjection(resultColumns)
+func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string) (sqlStr string, sqlVals []interface{}, err error) {
+	// Check result columns
+	if len(tableQueryReq.ResultColumnNames) > 0 {
+		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames)
 		if err != nil {
 			return "", nil, fmt.Errorf("check resultColumns err: %w", err)
 		}
@@ -141,40 +29,50 @@ func dbBuildSqlTableQuery(where map[string]string, resultColumns []string, schem
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_SELECT)
 
-	if len(resultColumns) == 0 {
+	// Handle result columns
+	if len(tableQueryReq.ResultColumnNames) == 0 {
 		sb.WriteString(protosql.SQL_ASTERISK)
 	} else {
-		sb.WriteString(strings.Join(resultColumns, protosql.SQL_COMMA))
+		sb.WriteString(strings.Join(tableQueryReq.ResultColumnNames, protosql.SQL_COMMA))
 	}
 
 	sb.WriteString(protosql.SQL_FROM)
 
-	dbtableName := sqldb.BuildDbTableName(tableName, schemaName, dbdialect)
+	// Build table name
+	dbdialect := sqldb.GetDBDialect(db)
+	dbtableName := sqldb.BuildDbTableName(tableQueryReq.TableName, tableQueryReq.SchemeName, dbdialect)
 	sb.WriteString(dbtableName)
 
-	// Add WHERE clauses if any
-	//hasWhere := false
+	// Handle WHERE clauses
 	placeholder := dbdialect.Placeholder()
 	sqlParaNo := 1
 
-	if len(where) > 0 || len(permissionSqlStr) > 0 {
+	if len(tableQueryReq.Where) > 0 || len(permissionSqlStr) > 0 {
+
 		sb.WriteString(protosql.SQL_WHERE)
-		//hasWhere = true
 
 		firstPlaceholder := true
 
 		// Add permission SQL if provided
 		if len(permissionSqlStr) > 0 {
+			sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
 			sb.WriteString(permissionSqlStr)
+			sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
 			firstPlaceholder = false
 		}
 
 		// Add conditions from where map
-		for fieldName, fieldValue := range where {
+		for fieldName, fieldValue := range tableQueryReq.Where {
 			if !firstPlaceholder {
 				sb.WriteString(protosql.SQL_AND)
 			}
 			firstPlaceholder = false
+
+			//check fieldname security
+			err = checkSQLColumnsIsNoInjectionStr(fieldName)
+			if err != nil {
+				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldName, err)
+			}
 
 			sb.WriteString(fieldName)
 			sb.WriteString(protosql.SQL_EQUEAL)
@@ -191,7 +89,17 @@ func dbBuildSqlTableQuery(where map[string]string, resultColumns []string, schem
 		}
 	}
 
-	sqlStr = sb.String()
+	// Add LIMIT and OFFSET if specified
+	if tableQueryReq.Limit > 0 {
+		sb.WriteString(protosql.SQL_LIMIT)
+		sb.WriteString(fmt.Sprint(tableQueryReq.Limit))
+	}
 
+	if tableQueryReq.Offset > 0 {
+		sb.WriteString(protosql.SQL_OFFSET)
+		sb.WriteString(fmt.Sprint(tableQueryReq.Offset))
+	}
+
+	sqlStr = sb.String()
 	return sqlStr, sqlVals, nil
 }

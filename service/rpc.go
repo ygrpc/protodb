@@ -258,7 +258,23 @@ func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[pr
 		return sendErr(fmt.Errorf("can not get protodb msg %s err", TableQueryReq.TableName))
 	}
 
-	sqlStr, sqlVals, err := crud.DbTableQueryBuildSql(meta, db, dbmsg, req.Msg)
+	permissionSqlStr := ""
+
+	permissionFn, ok := this.fnTableQueryPermissionMap[TableQueryReq.TableName]
+	if ok {
+		if permissionFn != nil {
+			permissionSqlStr, err = permissionFn(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
+
+			if err != nil {
+				return sendErr(fmt.Errorf("permission check for table %s err: %w", TableQueryReq.TableName, err))
+			}
+		}
+
+	} else {
+		return sendErr(fmt.Errorf("no permission check function for table %s", TableQueryReq.TableName))
+	}
+
+	sqlStr, sqlVals, err := crud.TableQueryBuildSql(db, req.Msg, permissionSqlStr)
 
 	if err != nil {
 		return sendErr(fmt.Errorf("build query sql for %s err: %w", TableQueryReq.TableName, err))
