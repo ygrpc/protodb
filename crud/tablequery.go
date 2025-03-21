@@ -3,9 +3,12 @@ package crud
 import (
 	"database/sql"
 	"fmt"
-	"github.com/ygrpc/protodb/msgstore"
+	"net/http"
 	"strings"
 
+	"github.com/ygrpc/protodb/msgstore"
+
+	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
 	"github.com/ygrpc/protodb/sqldb"
@@ -16,6 +19,11 @@ type TqueryItem struct {
 	Err   *string
 	IsEnd bool
 	Msg   proto.Message
+}
+
+func DbTableQueryBuildSql(meta http.Header, db *sql.DB, msg proto.Message, tableQueryReq *protodb.TableQueryReq) (sqlStr string, sqlVals []interface{}, err error) {
+
+	return
 }
 
 // DbTableQuery executes a query against the database and streams results through the provided channel
