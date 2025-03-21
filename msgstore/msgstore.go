@@ -5,6 +5,8 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+// TFnGetMsg get a proto.Message from msgStore
+// new if need a new message, else return global static message
 type TFnGetMsg = func(new bool) proto.Message
 
 var msgStore = make(map[string]TFnGetMsg)
@@ -22,6 +24,7 @@ func RegisterMsg(msgName string, msgGetFunc TFnGetMsg) {
 }
 
 // GetMsg get a proto.Message from msgStore
+// new if need a new message, else return global static message
 func GetMsg(msgName string, new bool) (proto.Message, bool) {
 	msgfn, ok := msgStore[msgName]
 	if !ok {
