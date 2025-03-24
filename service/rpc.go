@@ -1,9 +1,10 @@
 package service
 
 import (
-	"connectrpc.com/connect"
 	"context"
 	"fmt"
+
+	"connectrpc.com/connect"
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/crud"
 	"github.com/ygrpc/protodb/msgstore"
@@ -49,158 +50,17 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 	meta := req.Header()
 	CrudMsg := req.Msg
 
-	db, err := this.FnGetDb(meta, CrudMsg.SchemeName, CrudMsg.TableName, true)
+	respCrud, err := crud.Crud(ctx, meta, CrudMsg, this.FnGetDb, this.fnCrudPermissionMap[CrudMsg.TableName], this.fnTableQueryPermissionMap[CrudMsg.TableName])
 	if err != nil {
 		return nil, err
 	}
 
-	dbmsg, ok := msgstore.GetMsg(CrudMsg.TableName, true)
-	if !ok {
-		return nil, fmt.Errorf("can not get proto msg %s err", CrudMsg.TableName)
+	resp = &connect.Response[protodb.CrudResp]{
+		Msg: respCrud,
 	}
 
-	// unmarshal
-	err = proto.Unmarshal(CrudMsg.MsgBytes, dbmsg)
-	if err != nil {
-		return nil, fmt.Errorf("unmarshal msg %s err: %w", CrudMsg.TableName, err)
-	}
+	return resp, nil
 
-	if fnCrudPermission, ok := this.fnCrudPermissionMap[CrudMsg.TableName]; ok {
-		if fnCrudPermission != nil {
-			err = fnCrudPermission(meta, CrudMsg.SchemeName, CrudMsg.Code, db, dbmsg)
-			if err != nil {
-				return nil, connect.NewError(connect.CodePermissionDenied, err)
-			}
-		}
-	} else {
-		return nil, connect.NewError(connect.CodePermissionDenied, fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName))
-	}
-
-	switch CrudMsg.Code {
-	case protodb.CrudReqCode_INSERT:
-		switch CrudMsg.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbInsert(db, dbmsg, CrudMsg.MsgLastFieldNo, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("insert msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: dmlResult,
-			}
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbInsertReturn(db, dbmsg, CrudMsg.MsgLastFieldNo, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("insert msg %s err: %w", CrudMsg.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: &protodb.CrudResp{
-					RowsAffected: 1,
-					NewMsgBytes:  NewMsgBytes,
-				},
-			}
-			return resp, nil
-		}
-	case protodb.CrudReqCode_UPDATE:
-		switch CrudMsg.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbUpdate(db, dbmsg, CrudMsg.MsgLastFieldNo, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: dmlResult,
-			}
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbUpdateReturnNew(db, dbmsg, CrudMsg.MsgLastFieldNo, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", CrudMsg.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: &protodb.CrudResp{
-					RowsAffected: 1,
-					NewMsgBytes:  NewMsgBytes,
-				},
-			}
-			return resp, nil
-		case protodb.CrudResultType_OldMsgAndNewMsg:
-			oldMsg, newMsg, err := crud.DbUpdateReturnOldAndNew(db, dbmsg, CrudMsg.MsgLastFieldNo, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", CrudMsg.TableName, err)
-			}
-			OldMsgBytes, err := proto.Marshal(oldMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal old msg %s err: %w", CrudMsg.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: &protodb.CrudResp{
-					RowsAffected: 1,
-					OldMsgBytes:  OldMsgBytes,
-					NewMsgBytes:  NewMsgBytes,
-				},
-			}
-			return resp, nil
-		}
-	case protodb.CrudReqCode_DELETE:
-		switch CrudMsg.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbDelete(db, dbmsg, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("delete msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: dmlResult,
-			}
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbDeleteReturn(db, dbmsg, CrudMsg.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("delete msg %s err: %w", CrudMsg.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", CrudMsg.TableName, err)
-			}
-			resp = &connect.Response[protodb.CrudResp]{
-				Msg: &protodb.CrudResp{
-					RowsAffected: 1,
-					NewMsgBytes:  NewMsgBytes,
-				},
-			}
-			return resp, nil
-		}
-	case protodb.CrudReqCode_SELECTONE:
-		newMsg, err := crud.DbSelectOne(db, dbmsg, CrudMsg.SelectOneKeyFields, CrudMsg.SelectResultFields, CrudMsg.SchemeName)
-		if err != nil {
-			return nil, fmt.Errorf("selectone msg %s err: %w", CrudMsg.TableName, err)
-		}
-		NewMsgBytes, err := proto.Marshal(newMsg)
-		if err != nil {
-			return nil, fmt.Errorf("marshal new msg %s err: %w", CrudMsg.TableName, err)
-		}
-		resp = &connect.Response[protodb.CrudResp]{
-			Msg: &protodb.CrudResp{
-				RowsAffected: 1,
-				NewMsgBytes:  NewMsgBytes,
-			},
-		}
-		return resp, nil
-	}
-
-	return nil, fmt.Errorf("Unknown crud code: %s", CrudMsg.Code.String())
 }
 
 func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[protodb.TableQueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
