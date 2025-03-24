@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/ygrpc/protodb/pdbutil"
+	"github.com/ygrpc/protodb/querystore"
 	"net/http"
 
 	"connectrpc.com/connect"
@@ -311,4 +312,124 @@ func TableQuery(ctx context.Context, meta http.Header, req *protodb.TableQueryRe
 	}
 
 	return nil
+}
+
+func Query(ctx context.Context, meta http.Header, req *protodb.QueryReq, fnGetDb TfnProtodbGetDb, fnSend TfnSendQueryResp) error {
+
+	sendErr := func(err error) error {
+		resp := &protodb.QueryResp{
+			ResponseNo:  0,
+			ErrInfo:     err.Error(),
+			MsgBytes:    nil,
+			MsgFormat:   0,
+			ResponseEnd: true,
+		}
+		return fnSend(resp)
+	}
+
+	db, err := fnGetDb(meta, "", "", false)
+	if err != nil {
+		return sendErr(err)
+	}
+
+	fn, ok := querystore.GetQuery(req.QueryName)
+	if !ok {
+		return sendErr(fmt.Errorf("err: can not get query fn for %s", req.QueryName))
+	}
+
+	sqlStr, sqlVals, fnGetResultMsg, err := fn(meta, db, req)
+	if err != nil {
+		return sendErr(fmt.Errorf("generate query sql for %s err: %w", req.QueryName, err))
+	}
+
+	var resultMsg proto.Message
+
+	resultMsg = fnGetResultMsg(false)
+
+	// Determine which fields to scan
+	resultColumns := req.ResultColumnNames
+	useAllFields := len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*")
+	fieldNames := resultColumns
+	if useAllFields {
+		fieldNames = nil
+	}
+
+	msgDesc := resultMsg.ProtoReflect().Descriptor()
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
+
+	rows, err := db.Query(sqlStr, sqlVals...)
+	if err != nil {
+		return sendErr(fmt.Errorf("query %s err: %w", req.QueryName, err))
+	}
+
+	defer rows.Close()
+
+	var respNo int64 = 0
+	batchSize := req.PreferBatchSize
+	if batchSize <= 0 {
+		batchSize = 1
+	}
+	if batchSize > 10000 {
+		batchSize = 10000
+	}
+	respBatchSize := batchSize
+	respMsgByteSize := 0
+	maxMsgByteSize := 1024 * 1024
+	resp := &protodb.QueryResp{
+		ResponseNo:  respNo,
+		MsgFormat:   req.MsgFormat,
+		MsgBytes:    nil,
+		ResponseEnd: false,
+	}
+
+	for rows.Next() {
+		resultMsg = fnGetResultMsg(true)
+
+		// Scan row data
+		err = DbScan2ProtoMsg(rows, resultMsg,
+			fieldNames,
+			msgFieldsMap,
+		)
+		if err != nil {
+			return sendErr(fmt.Errorf("scan row data err: %w", err))
+		}
+
+		resultMsgBytes, err := MsgMarshal(resultMsg, req.MsgFormat)
+		if err != nil {
+			return sendErr(fmt.Errorf("marshal msg err: %w", err))
+		}
+		resp.MsgBytes = append(resp.MsgBytes, resultMsgBytes)
+		respMsgByteSize += len(resultMsgBytes)
+		respBatchSize++
+		if respMsgByteSize >= maxMsgByteSize || respBatchSize >= batchSize {
+			resp.ResponseNo = respNo
+			resp.ResponseEnd = false
+			err = fnSend(resp)
+			if err != nil {
+				return sendErr(fmt.Errorf("send msg fail, %w", err))
+			}
+			respNo++
+			respBatchSize = 0
+			respMsgByteSize = 0
+			resp = &protodb.QueryResp{
+				ResponseNo:  respNo,
+				MsgFormat:   req.MsgFormat,
+				MsgBytes:    nil,
+				ResponseEnd: false,
+			}
+		}
+	}
+
+	err = rows.Err()
+	if err != nil {
+		return sendErr(fmt.Errorf("query %s err: %w", req.QueryName, err))
+	}
+
+	resp.ResponseEnd = true
+	err = fnSend(resp)
+	if err != nil {
+		return sendErr(fmt.Errorf("send msg fail, %w", err))
+	}
+	return nil
+
 }
