@@ -7,7 +7,6 @@ import (
 	"connectrpc.com/connect"
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/crud"
-	"github.com/ygrpc/protodb/msgstore"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/querystore"
 	"google.golang.org/protobuf/proto"
@@ -50,7 +49,13 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 	meta := req.Header()
 	CrudMsg := req.Msg
 
-	respCrud, err := crud.Crud(ctx, meta, CrudMsg, this.FnGetDb, this.fnCrudPermissionMap[CrudMsg.TableName], this.fnTableQueryPermissionMap[CrudMsg.TableName])
+	fnCrudPermission := this.fnCrudPermissionMap[CrudMsg.TableName]
+
+	if fnCrudPermission == nil && CrudMsg.Code != protodb.CrudReqCode_SELECTONE {
+		return nil, fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName)
+	}
+
+	respCrud, err := crud.Crud(ctx, meta, CrudMsg, this.FnGetDb, fnCrudPermission)
 	if err != nil {
 		return nil, err
 	}
@@ -78,128 +83,12 @@ func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[pr
 	meta := req.Header()
 	TableQueryReq := req.Msg
 
-	db, err := this.FnGetDb(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, false)
-	if err != nil {
-		return sendErr(err)
-	}
-
-	dbmsg, ok := msgstore.GetMsg(TableQueryReq.TableName, false)
-	if !ok {
-		return sendErr(fmt.Errorf("can not get protodb msg %s err", TableQueryReq.TableName))
-	}
-
-	permissionSqlStr := ""
-
 	permissionFn, ok := this.fnTableQueryPermissionMap[TableQueryReq.TableName]
-	if ok {
-		if permissionFn != nil {
-			permissionSqlStr, err = permissionFn(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
-
-			if err != nil {
-				return sendErr(fmt.Errorf("permission check for table %s err: %w", TableQueryReq.TableName, err))
-			}
-		}
-
-	} else {
+	if !ok {
 		return sendErr(fmt.Errorf("no permission check function for table %s", TableQueryReq.TableName))
 	}
 
-	sqlStr, sqlVals, err := crud.TableQueryBuildSql(db, req.Msg, permissionSqlStr)
-
-	if err != nil {
-		return sendErr(fmt.Errorf("build query sql for %s err: %w", TableQueryReq.TableName, err))
-	}
-
-	rows, err := db.Query(sqlStr, sqlVals...)
-	if err != nil {
-		return sendErr(fmt.Errorf("tablequery %s err: %w", TableQueryReq.TableName, err))
-	}
-	defer rows.Close()
-
-	// Determine which fields to scan
-	resultColumns := req.Msg.ResultColumnNames
-	useAllFields := len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*")
-	fieldNames := resultColumns
-	if useAllFields {
-		fieldNames = nil
-	}
-
-	resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, false)
-
-	msgDesc := resultMsg.ProtoReflect().Descriptor()
-	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
-
-	var respNo int64 = 0
-	batchSize := TableQueryReq.PreferBatchSize
-	if batchSize <= 0 {
-		batchSize = 1
-	}
-	if batchSize > 10000 {
-		batchSize = 10000
-	}
-
-	respBatchSize := batchSize
-	respMsgByteSize := 0
-	maxMsgByteSize := 1024 * 1024
-	resp := &protodb.QueryResp{
-		ResponseNo:  respNo,
-		MsgFormat:   TableQueryReq.MsgFormat,
-		MsgBytes:    nil,
-		ResponseEnd: false,
-	}
-
-	for rows.Next() {
-		resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, true)
-
-		// Scan row data
-		err = crud.DbScan2ProtoMsg(rows, resultMsg,
-			fieldNames,
-			msgFieldsMap, // msgFieldsMap will be built inside DbScan2ProtoMsg if nil
-		)
-		if err != nil {
-			return sendErr(fmt.Errorf("tablequery %s scan row data err: %w", TableQueryReq.TableName, err))
-		}
-
-		resultMsgBytes, err := crud.MsgMarshal(resultMsg, TableQueryReq.MsgFormat)
-		if err != nil {
-			return sendErr(fmt.Errorf("tablequery %s marshal msg err: %w", TableQueryReq.TableName, err))
-		}
-
-		resp.MsgBytes = append(resp.MsgBytes, resultMsgBytes)
-		respMsgByteSize += len(resultMsgBytes)
-		respBatchSize++
-
-		if respMsgByteSize >= maxMsgByteSize || respBatchSize >= batchSize {
-			resp.ResponseNo = respNo
-			resp.ResponseEnd = false
-			err = ss.Send(resp)
-			if err != nil {
-				return sendErr(fmt.Errorf("send msg fail, %w", err))
-			}
-			respNo++
-			respBatchSize = 0
-			respMsgByteSize = 0
-			resp = &protodb.QueryResp{
-				ResponseNo:  respNo,
-				MsgFormat:   TableQueryReq.MsgFormat,
-				MsgBytes:    nil,
-				ResponseEnd: false,
-			}
-		}
-	}
-
-	err = rows.Err()
-	if err != nil {
-		return sendErr(fmt.Errorf("query %s err: %w", TableQueryReq.TableName, err))
-	}
-
-	resp.ResponseEnd = true
-	err = ss.Send(resp)
-	if err != nil {
-		return sendErr(fmt.Errorf("send msg fail, %w", err))
-	}
-
-	return nil
+	return crud.TableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, ss.Send)
 }
 
 func (this *TrpcManager) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
