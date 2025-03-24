@@ -1,13 +1,9 @@
 package service
 
 import (
-	"context"
-	"database/sql"
-	"errors"
-	"fmt"
-	"net/http"
-
 	"connectrpc.com/connect"
+	"context"
+	"fmt"
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/crud"
 	"github.com/ygrpc/protodb/msgstore"
@@ -16,57 +12,31 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
-// TfnProtodbGetDb get db for db operation
-// meta http header
-// schemaName schema name
-// tableName table name
-// writable if db is writable
-type TfnProtodbGetDb func(meta http.Header, schemaName string, tableName string, writable bool) (db *sql.DB, err error)
-
-// FnProtodbGetDbEmpty return nil
-func FnProtodbGetDbEmpty(meta http.Header, schemaName string, tableName string, writable bool) (db *sql.DB, err error) {
-	return nil, errors.New("FnProtodbGetDbEmpty")
-}
-
-type TfnProtodbCrudPermission func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error)
-
-// FnProtodbCrudPermissionEmpty allow all crud operation
-func FnProtodbCrudPermissionEmpty(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) (err error) {
-	return nil
-}
-
-type TfnTableQueryPermission func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error)
-
-// FnTableQueryPermissionEmpty empty where, allow query all rows
-func FnTableQueryPermissionEmpty(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error) {
-	return "", nil
-}
-
 type TrpcManager struct {
 	protodb.UnimplementedProtoDbSrvHandler
-	FnGetDb TfnProtodbGetDb
+	FnGetDb crud.TfnProtodbGetDb
 
 	// proto.message name => fn
 	// must set for every protodb message, if no fn for a message, set to nil
-	fnCrudPermissionMap map[string]TfnProtodbCrudPermission
+	fnCrudPermissionMap map[string]crud.TfnProtodbCrudPermission
 
 	// table name => fn
 	// must set for every table, if no fn for a table, set to nil
-	fnTableQueryPermissionMap map[string]TfnTableQueryPermission
+	fnTableQueryPermissionMap map[string]crud.TfnTableQueryPermission
 }
 
 // NewTrpcManager create new manager for rpc
-func NewTrpcManager(fnGetCrudDb TfnProtodbGetDb, fnCrudPermission map[string]TfnProtodbCrudPermission,
-	fnTableQueryPermission map[string]TfnTableQueryPermission) *TrpcManager {
+func NewTrpcManager(fnGetCrudDb crud.TfnProtodbGetDb, fnCrudPermission map[string]crud.TfnProtodbCrudPermission,
+	fnTableQueryPermission map[string]crud.TfnTableQueryPermission) *TrpcManager {
 	// set default value
 	if fnGetCrudDb == nil {
-		fnGetCrudDb = FnProtodbGetDbEmpty
+		fnGetCrudDb = crud.FnProtodbGetDbEmpty
 	}
 	if fnCrudPermission == nil {
-		fnCrudPermission = make(map[string]TfnProtodbCrudPermission)
+		fnCrudPermission = make(map[string]crud.TfnProtodbCrudPermission)
 	}
 	if fnTableQueryPermission == nil {
-		fnTableQueryPermission = make(map[string]TfnTableQueryPermission)
+		fnTableQueryPermission = make(map[string]crud.TfnTableQueryPermission)
 	}
 	return &TrpcManager{
 		FnGetDb:                   fnGetCrudDb,
