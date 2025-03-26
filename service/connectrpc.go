@@ -9,7 +9,7 @@ import (
 	"github.com/ygrpc/protodb/crud"
 )
 
-type TrpcManager struct {
+type TconnectrpcProtoDbSrvHandlerImpl struct {
 	protodb.UnimplementedProtoDbSrvHandler
 	FnGetDb crud.TfnProtodbGetDb
 
@@ -22,9 +22,9 @@ type TrpcManager struct {
 	fnTableQueryPermissionMap map[string]crud.TfnTableQueryPermission
 }
 
-// NewTrpcManager create new manager for rpc
-func NewTrpcManager(fnGetCrudDb crud.TfnProtodbGetDb, fnCrudPermission map[string]crud.TfnProtodbCrudPermission,
-	fnTableQueryPermission map[string]crud.TfnTableQueryPermission) *TrpcManager {
+// NewTconnectrpcProtoDbSrvHandlerImpl create new ProtoDbSrvHandler impl in connectrpc
+func NewTconnectrpcProtoDbSrvHandlerImpl(fnGetCrudDb crud.TfnProtodbGetDb, fnCrudPermission map[string]crud.TfnProtodbCrudPermission,
+	fnTableQueryPermission map[string]crud.TfnTableQueryPermission) *TconnectrpcProtoDbSrvHandlerImpl {
 	// set default value
 	if fnGetCrudDb == nil {
 		fnGetCrudDb = crud.FnProtodbGetDbEmpty
@@ -35,14 +35,14 @@ func NewTrpcManager(fnGetCrudDb crud.TfnProtodbGetDb, fnCrudPermission map[strin
 	if fnTableQueryPermission == nil {
 		fnTableQueryPermission = make(map[string]crud.TfnTableQueryPermission)
 	}
-	return &TrpcManager{
+	return &TconnectrpcProtoDbSrvHandlerImpl{
 		FnGetDb:                   fnGetCrudDb,
 		fnCrudPermissionMap:       fnCrudPermission,
 		fnTableQueryPermissionMap: fnTableQueryPermission,
 	}
 }
 
-func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.CrudReq]) (resp *connect.Response[protodb.CrudResp], err error) {
+func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *connect.Request[protodb.CrudReq]) (resp *connect.Response[protodb.CrudResp], err error) {
 	meta := req.Header()
 	CrudMsg := req.Msg
 
@@ -65,7 +65,7 @@ func (this *TrpcManager) Crud(ctx context.Context, req *connect.Request[protodb.
 
 }
 
-func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[protodb.TableQueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
+func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, req *connect.Request[protodb.TableQueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
 	sendErr := func(err error) error {
 		resp := &protodb.QueryResp{
 			ResponseNo:  0,
@@ -88,7 +88,7 @@ func (this *TrpcManager) TableQuery(ctx context.Context, req *connect.Request[pr
 	return crud.TableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, ss.Send)
 }
 
-func (this *TrpcManager) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
+func (this *TconnectrpcProtoDbSrvHandlerImpl) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
 	return crud.Query(ctx, req.Header(), req.Msg, this.FnGetDb, ss.Send)
 
 }
