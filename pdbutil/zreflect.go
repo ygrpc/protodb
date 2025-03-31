@@ -119,12 +119,14 @@ func SetField(obj interface{}, name string, value interface{}) error {
 
 	structFieldType := structFieldValue.Type()
 
-	if structFieldType != val.Type() {
-		//fmt.Println("name:", name, "v type:", val.Type().String())
+	valType := val.Type()
+
+	if structFieldType != valType {
+		//fmt.Println("name:", name, "v type:", valType.String())
 		switch structFieldType.Kind() {
 
 		case reflect.Int64:
-			switch val.Type().Kind() {
+			switch valType.Kind() {
 			//case pointer:
 			case reflect.Pointer:
 				ptr := value.(*interface{})
@@ -241,7 +243,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 
 			}
 		case reflect.String:
-			switch val.Type().String() {
+			switch valType.String() {
 			case "time.Time":
 				valTime := value.(time.Time)
 				val = reflect.ValueOf(TimeISOStr(valTime))
@@ -268,7 +270,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 
 			case "int32":
 				if WarnInt2StrInSetField {
-					fmt.Println("setfield to string warn:", name, val.Type().String())
+					fmt.Println("setfield to string warn:", name, valType.String())
 				}
 				v32 := value.(int32)
 				val = reflect.ValueOf(strconv.Itoa(int(v32)))
@@ -301,7 +303,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				}
 			}
 		case reflect.Int32:
-			switch val.Type().Kind() {
+			switch valType.Kind() {
 			case reflect.Pointer:
 				ptr := value.(*any)
 				ifaceValue := *ptr
@@ -407,7 +409,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				goto SETVALUE
 			}
 		case reflect.Uint32:
-			switch val.Type().Kind() {
+			switch valType.Kind() {
 			//pointer
 			case reflect.Pointer:
 				ptr := value.(*interface{})
@@ -514,7 +516,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				goto SETVALUE
 			}
 		case reflect.Uint64:
-			switch val.Type().Kind() {
+			switch valType.Kind() {
 			//pointer
 			case reflect.Pointer:
 				ptr := value.(*interface{})
@@ -615,7 +617,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				goto SETVALUE
 			}
 		}
-		invalidTypeError := errors.New(name + ": value type didn't match obj field type " + structFieldType.String() + ":" + val.Type().String())
+		invalidTypeError := errors.New(name + ": value type didn't match obj field type " + structFieldType.String() + ":" + valType.String())
 		fmt.Println(name, invalidTypeError)
 		return invalidTypeError
 	}
