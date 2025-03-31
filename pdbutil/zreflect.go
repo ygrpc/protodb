@@ -622,6 +622,10 @@ func SetField(obj interface{}, name string, value interface{}) error {
 		return invalidTypeError
 	}
 SETVALUE:
+	valType = val.Type()
+	if valType != structFieldType && valType.ConvertibleTo(structFieldType) {
+		val = val.Convert(structFieldType)
+	}
 	structFieldValue.Set(val)
 	return nil
 }
