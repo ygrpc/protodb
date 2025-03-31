@@ -100,13 +100,13 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 		}
 
 		if len(keyColumns) == 0 {
-			return "", nil, fmt.Errorf("no key field for table %s", tableName)
+			return "", nil, fmt.Errorf("no primary key field for table %s", tableName)
 		}
 	} else {
 		primaryOrUniqueKeyFieldNames := pdbutil.GetPrimaryKeyOrUniqueFieldDescs(msgDesc, msgFieldDescs, false)
 		for _, fieldName := range keyColumns {
 			if _, ok := primaryOrUniqueKeyFieldNames[fieldName]; !ok {
-				return "", nil, fmt.Errorf("key column %s not found in table %s", fieldName, tableName)
+				return "", nil, fmt.Errorf("column %s:%s is not primary or unique key", tableName, fieldName)
 			}
 
 		}
