@@ -223,16 +223,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	}
 	sqlStr = sqlStr[:len(sqlStr)-1] + protosql.SQL_RIGHT_PARENTHESES
 
-	// unique keys
-	for _, uniqueFields := range uniquekeysMap {
-
-		sqlStr += protosql.SQL_COMMA + protosql.UNIQUE + protosql.SQL_LEFT_PARENTHESES
-		for _, field := range uniqueFields {
-			sqlStr += string(field.Name()) + ","
-		}
-		sqlStr = sqlStr[:len(sqlStr)-1] + protosql.SQL_RIGHT_PARENTHESES
-	}
-
 	for _, s := range pdbm.SQLAppend {
 		sqlStr += s + "\n"
 	}
@@ -245,6 +235,13 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	sqlStr += protosql.SQL_SEMICOLON
 
+	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	if len(uniqueKeySql) > 0 {
+		//new line
+		sqlStr += "\n"
+		sqlStr += uniqueKeySql
+	}
+
 	for _, s := range pdbm.SQLAppendsEnd {
 		sqlStr += s + "\n"
 	}
@@ -254,6 +251,38 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	builtInitSqlMap[initSqlItem.TableName] = initSqlItem
 	return initSqlItem, nil
 
+}
+
+func createUniqueKeySql(tableName string, uniquekeysMap map[string][]protoreflect.FieldDescriptor) string {
+	sb := strings.Builder{}
+	// unique keys
+	for uniqueName, uniqueFields := range uniquekeysMap {
+		//sb.WriteString(" create unique index if not exists ")
+		sb.WriteString(protosql.SQL_CREATE)
+		sb.WriteString(protosql.SQL_UNIQUE)
+		sb.WriteString(protosql.SQL_INDEX)
+		sb.WriteString(protosql.SQL_IF_NOT_EXISTS)
+		sb.WriteString(uniqueName)
+		//on
+		sb.WriteString(protosql.SQL_ON)
+		sb.WriteString(tableName)
+		//protosql.SQL_LEFT_PARENTHESES
+		sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
+		isFirst := true
+		for _, field := range uniqueFields {
+			if isFirst {
+				isFirst = false
+			} else {
+				sb.WriteString(protosql.SQL_COMMA)
+			}
+			sb.WriteString(string(field.Name()))
+		}
+		sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+		sb.WriteString(protosql.SQL_SEMICOLON)
+		sb.WriteString("\n")
+	}
+
+	return sb.String()
 }
 
 func GetRefTableName(reference string) (string, error) {
@@ -430,6 +459,9 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 	dbdialect := sqldb.GetDBDialect(db)
 	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 
+	//uniquename->proto field
+	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
+
 	// Process each field in the proto message
 	for i := 0; i < msgFieldDescs.Len(); i++ {
 		fieldDesc := msgFieldDescs.Get(i)
@@ -440,6 +472,12 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		// Skip fields marked as NotDB
 		if pdb.NotDB {
 			continue
+		}
+
+		if pdb.Unique {
+			if len(pdb.UniqueName) > 0 {
+				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+			}
 		}
 
 		sqlType := getSqlTypeStr(fieldDesc, pdb, dbdialect)
@@ -495,6 +533,11 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 	if len(alterStatements) > 0 {
 		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
+	}
+
+	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	if len(uniqueKeySql) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
@@ -593,6 +636,9 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 	// Generate ALTER TABLE statements
 	var alterStatements []string
 
+	//uniquename->proto field
+	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
+
 	// Process each field in the proto message
 	for i := 0; i < msgFieldDescs.Len(); i++ {
 		fieldDesc := msgFieldDescs.Get(i)
@@ -603,6 +649,12 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 		// Skip fields marked as NotDB
 		if pdb.NotDB {
 			continue
+		}
+
+		if pdb.Unique {
+			if len(pdb.UniqueName) > 0 {
+				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+			}
 		}
 
 		sqlType := getSqlTypeStr(fieldDesc, pdb, sqldb.SQLite)
@@ -655,6 +707,11 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 	if len(alterStatements) > 0 {
 		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
+	}
+
+	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	if len(uniqueKeySql) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)

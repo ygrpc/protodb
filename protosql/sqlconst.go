@@ -34,12 +34,14 @@ const SQL_LIMIT_1 = SQL_LIMIT + " 1 "
 const SQL_OFFSET = " OFFSET "
 const SQL_RETURNING = " RETURNING "
 const SQL_ASTERISK = " * "
+const SQL_CREATE = "CREATE "
 
 // create table
-const SQL_CREATETABLE = "CREATE TABLE "
+const SQL_CREATETABLE = SQL_CREATE + "TABLE "
 
 // if not exists
 const SQL_IFNOTEXISTS = " IF NOT EXISTS "
+const SQL_IF_NOT_EXISTS = SQL_IFNOTEXISTS
 
 // SQL_PRIMARYKEY
 const SQL_PRIMARYKEY = " PRIMARY KEY "
@@ -52,12 +54,19 @@ const NULL = " NULL "
 
 // UNIQUE
 const UNIQUE = " UNIQUE "
+const SQL_UNIQUE = UNIQUE
+
+// index
+const SQL_INDEX = " INDEX "
 
 // REFERENCES
 const REFERENCES = " REFERENCES "
 
 // DEFAULT
 const DEFAULT = " DEFAULT "
+
+// ON
+const SQL_ON = " ON "
 
 type SQLPlaceholder string
 
