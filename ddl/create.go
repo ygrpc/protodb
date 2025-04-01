@@ -87,23 +87,32 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	fieldPdbMap := map[string]*protodb.PDBField{}
 	primarykeys := []protoreflect.FieldDescriptor{}
 
+	dbdialect := sqldb.GetDBDialect(db)
+
 	//uniquename->proto field
 	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
 	for i := 0; i < msgFieldDescs.Len(); i++ {
 		fieldDesc := msgFieldDescs.Get(i)
-		fieldname := string(fieldDesc.Name())
+		fieldName := string(fieldDesc.Name())
 
 		pdb, _ := pdbutil.GetPDB(fieldDesc)
-		fieldPdbMap[fieldname] = pdb
+		fieldPdbMap[fieldName] = pdb
 
 		if pdb.Primary {
 			primarykeys = append(primarykeys, fieldDesc)
 		}
 		if pdb.Unique {
 			if len(pdb.UniqueName) > 0 {
-				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+				idxName := pdb.UniqueName
+				if dbdialect != sqldb.Postgres && len(dbschema) > 0 {
+					idxName = dbschema + "_" + idxName
+				}
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
 			} else {
-				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldname)
+				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldName)
+				if dbdialect != sqldb.Postgres && len(dbschema) > 0 {
+					idxName = fmt.Sprintf("uk_%s_%s_%s", dbschema, tableName, fieldName)
+				}
 				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
 			}
 		}
@@ -131,8 +140,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	}
 
 	sqlStr += protosql.SQL_CREATETABLE + protosql.SQL_IFNOTEXISTS
-
-	dbdialect := sqldb.GetDBDialect(db)
 
 	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 	sqlStr += dbtableName
@@ -253,33 +260,40 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 }
 
+func createOneUniqueKeySql(tableName string, uniqueName string, uniquekeysFields []protoreflect.FieldDescriptor) string {
+	sb := strings.Builder{}
+
+	//sb.WriteString(" create unique index if not exists ")
+	sb.WriteString(protosql.SQL_CREATE)
+	sb.WriteString(protosql.SQL_UNIQUE)
+	sb.WriteString(protosql.SQL_INDEX)
+	sb.WriteString(protosql.SQL_IF_NOT_EXISTS)
+	sb.WriteString(uniqueName)
+	//on
+	sb.WriteString(protosql.SQL_ON)
+	sb.WriteString(tableName)
+	//protosql.SQL_LEFT_PARENTHESES
+	sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
+	isFirst := true
+	for _, field := range uniquekeysFields {
+		if isFirst {
+			isFirst = false
+		} else {
+			sb.WriteString(protosql.SQL_COMMA)
+		}
+		sb.WriteString(string(field.Name()))
+	}
+	sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+	sb.WriteString(protosql.SQL_SEMICOLON)
+	sb.WriteString("\n")
+	return sb.String()
+}
+
 func createUniqueKeySql(tableName string, uniquekeysMap map[string][]protoreflect.FieldDescriptor) string {
 	sb := strings.Builder{}
 	// unique keys
 	for uniqueName, uniqueFields := range uniquekeysMap {
-		//sb.WriteString(" create unique index if not exists ")
-		sb.WriteString(protosql.SQL_CREATE)
-		sb.WriteString(protosql.SQL_UNIQUE)
-		sb.WriteString(protosql.SQL_INDEX)
-		sb.WriteString(protosql.SQL_IF_NOT_EXISTS)
-		sb.WriteString(uniqueName)
-		//on
-		sb.WriteString(protosql.SQL_ON)
-		sb.WriteString(tableName)
-		//protosql.SQL_LEFT_PARENTHESES
-		sb.WriteString(protosql.SQL_LEFT_PARENTHESES)
-		isFirst := true
-		for _, field := range uniqueFields {
-			if isFirst {
-				isFirst = false
-			} else {
-				sb.WriteString(protosql.SQL_COMMA)
-			}
-			sb.WriteString(string(field.Name()))
-		}
-		sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
-		sb.WriteString(protosql.SQL_SEMICOLON)
-		sb.WriteString("\n")
+		sb.WriteString(createOneUniqueKeySql(tableName, uniqueName, uniqueFields))
 	}
 
 	return sb.String()
@@ -406,6 +420,42 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 
 }
 
+func getPostgresqlIndex(db *sql.DB, schemaName string, idxName string) (indexColumns map[string]struct{}, err error) {
+	query := fmt.Sprintf("select indexdef from pg_indexes where schemaname='%s' and indexname='%s' limit 1;", schemaName, idxName)
+	var indexdef string
+	indexColumns = make(map[string]struct{}, 0)
+
+	err = db.QueryRow(query, schemaName, idxName).Scan(&indexdef)
+	if err != nil {
+		//if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
+			return indexColumns, nil
+		}
+		return indexColumns, err
+	}
+
+	//to lower
+	indexdef = strings.ToLower(indexdef)
+	//cut by (
+	_, after, found := strings.Cut(indexdef, "(")
+	if !found {
+		return
+	}
+	//cut by )
+	before, _, found := strings.Cut(after, ")")
+	if !found {
+		return
+	}
+	//split by ,
+	for _, column := range strings.Split(before, ",") {
+		column = strings.TrimSpace(column)
+		columnName := strings.ToLower(column)
+		indexColumns[columnName] = struct{}{}
+	}
+
+	return indexColumns, nil
+}
+
 func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors,
 	checkRefference bool, withComment bool, builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
@@ -456,7 +506,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 	var alterStatements []string
 
 	// Get database dialect
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.Postgres
 	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 
 	//uniquename->proto field
@@ -476,7 +526,13 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 		if pdb.Unique {
 			if len(pdb.UniqueName) > 0 {
-				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+				idxName := pdb.UniqueName
+
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
+			} else {
+				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldName)
+
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
 			}
 		}
 
@@ -491,9 +547,6 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 			// Add constraints
 			if pdb.NotNull {
 				alterStmt += " NOT NULL "
-			}
-			if pdb.Unique && len(pdb.UniqueName) == 0 {
-				alterStmt += " UNIQUE "
 			}
 
 			if len(pdb.DefaultValue) > 0 {
@@ -535,9 +588,37 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
 	}
 
-	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
-	if len(uniqueKeySql) > 0 {
-		migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
+	//uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	//if len(uniqueKeySql) > 0 {
+	//	migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
+	//}
+
+	migrateUniqueKeySql := ""
+	for uniqueKeyName, uniqueKeyFields := range uniquekeysMap {
+		//check if the index exist first,if not create it
+		indexColumns, err := getPostgresqlIndex(db, dbschema, uniqueKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if len(indexColumns) == 0 {
+			//not exist,create it
+			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+			migrateUniqueKeySql += createUniqueKeySql
+		} else {
+			if !uniqueKeyColumnsEqual(indexColumns, uniqueKeyFields) {
+				//not equal,drop it and create it
+				dropUniqueKeySql := fmt.Sprintf("drop index if exists %s ;\n", uniqueKeyName)
+				if len(dbschema) > 0 {
+					dropUniqueKeySql = fmt.Sprintf("drop index if exists %s.%s ;\n", dbschema, uniqueKeyName)
+				}
+				migrateUniqueKeySql += dropUniqueKeySql
+				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+				migrateUniqueKeySql += createUniqueKeySql
+			}
+		}
+	}
+	if len(migrateUniqueKeySql) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, migrateUniqueKeySql)
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
@@ -590,6 +671,30 @@ func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	return exists, nil
 }
 
+func getSqliteIndex(db *sql.DB, idxName string) (indexColumns map[string]struct{}, err error) {
+	query := fmt.Sprintf("select name from PRAGMA_index_info(%s)", idxName)
+	rows, err := db.Query(query)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indexColumns = make(map[string]struct{}, 0)
+
+	for rows.Next() {
+		var columnName string
+		err = rows.Scan(&columnName)
+		if err != nil {
+			return nil, err
+		}
+		//to lower
+		columnName = strings.ToLower(columnName)
+		indexColumns[columnName] = struct{}{}
+	}
+
+	return indexColumns, nil
+}
+
 func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
 	builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
@@ -639,6 +744,8 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 	//uniquename->proto field
 	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
 
+	dbdialect := sqldb.SQLite
+
 	// Process each field in the proto message
 	for i := 0; i < msgFieldDescs.Len(); i++ {
 		fieldDesc := msgFieldDescs.Get(i)
@@ -653,7 +760,18 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 		if pdb.Unique {
 			if len(pdb.UniqueName) > 0 {
-				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+				idxName := pdb.UniqueName
+				dbdialect := sqldb.GetDBDialect(db)
+				if dbdialect != sqldb.Postgres && len(dbschema) > 0 {
+					idxName = dbschema + "_" + idxName
+				}
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
+			} else {
+				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldName)
+				if dbdialect != sqldb.Postgres && len(dbschema) > 0 {
+					idxName = fmt.Sprintf("uk_%s_%s_%s", dbschema, tableName, fieldName)
+				}
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
 			}
 		}
 
@@ -668,9 +786,6 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 			// Add constraints
 			if pdb.NotNull {
 				alterStmt += " NOT NULL "
-			}
-			if pdb.Unique && len(pdb.UniqueName) == 0 {
-				alterStmt += " UNIQUE "
 			}
 
 			if len(pdb.DefaultValue) > 0 {
@@ -709,9 +824,36 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
 	}
 
-	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
-	if len(uniqueKeySql) > 0 {
-		migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
+	//migrate unique key index by uniquekeysMap
+	//get all unique key index in db
+	//check if the index exist first,if not create it
+	//if exist,check if the index is unique key,check all field in index is equal to proto message definition
+
+	//uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	//if len(uniqueKeySql) > 0 {
+	//	migrateItem.SqlStr = append(migrateItem.SqlStr, uniqueKeySql)
+	//}
+
+	migrateUniqueKeySql := ""
+	for uniqueKeyName, uniqueKeyFields := range uniquekeysMap {
+		//check if the index exist first,if not create it
+		indexColumns, err := getSqliteIndex(db, uniqueKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if len(indexColumns) == 0 {
+			//not exist,create it
+			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+			migrateUniqueKeySql += createUniqueKeySql
+		} else {
+			if !uniqueKeyColumnsEqual(indexColumns, uniqueKeyFields) {
+				//not equal,drop it and create it
+				dropUniqueKeySql := fmt.Sprintf("drop index if exists %s;\n", uniqueKeyName)
+				migrateUniqueKeySql += dropUniqueKeySql
+				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+				migrateUniqueKeySql += createUniqueKeySql
+			}
+		}
 	}
 
 	pdbm, found := pdbutil.GetPDBM(msgDesc)
@@ -722,4 +864,19 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 	}
 
 	return migrateItem, nil
+}
+
+func uniqueKeyColumnsEqual(columns map[string]struct{}, fields []protoreflect.FieldDescriptor) bool {
+	if len(columns) != len(fields) {
+		return false
+	}
+	for _, field := range fields {
+		fileldName := string(field.Name())
+		fileldNameLower := strings.ToLower(fileldName)
+		_, ok := columns[fileldNameLower]
+		if !ok {
+			return false
+		}
+	}
+	return true
 }
