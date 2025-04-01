@@ -125,6 +125,172 @@ func SetField(obj interface{}, name string, value interface{}) error {
 		//fmt.Println("name:", name, "v type:", valType.String())
 		switch structFieldType.Kind() {
 
+		case reflect.Int32:
+			switch valType.Kind() {
+			case reflect.Pointer:
+				ptr := value.(*any)
+				ifaceValue := *ptr
+				switch v := ifaceValue.(type) {
+				case int64:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+				case int32:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+				case int:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+
+					// int16
+				case int16:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//int8
+				case int8:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//uint64
+				case uint64:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//uint32
+				case uint32:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+				//uint
+				case uint:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//uint16
+				case uint16:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//uint8
+				case uint8:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//float64
+				case float64:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+					//float32
+				case float32:
+					val = reflect.ValueOf(int32(v))
+					goto SETVALUE
+				}
+			case reflect.Int64:
+				valI64 := value.(int64)
+				val = reflect.ValueOf(int32(valI64))
+				goto SETVALUE
+			//int
+			case reflect.Int:
+				valI := value.(int)
+				val = reflect.ValueOf(int32(valI))
+				goto SETVALUE
+				//int16
+			case reflect.Int16:
+				valI16 := value.(int16)
+				val = reflect.ValueOf(int32(valI16))
+				goto SETVALUE
+				//int8
+			case reflect.Int8:
+				valI8 := value.(int8)
+				val = reflect.ValueOf(int32(valI8))
+				goto SETVALUE
+			case reflect.Uint64:
+				valU64 := value.(uint64)
+				val = reflect.ValueOf(int32(valU64))
+				goto SETVALUE
+			case reflect.Uint32:
+				valU32 := value.(uint32)
+				val = reflect.ValueOf(int32(valU32))
+				goto SETVALUE
+			//uint
+			case reflect.Uint:
+				valU := value.(uint)
+				val = reflect.ValueOf(int32(valU))
+				goto SETVALUE
+				//uint16
+			case reflect.Uint16:
+				valU16 := value.(uint16)
+				val = reflect.ValueOf(int32(valU16))
+				goto SETVALUE
+				//uint8
+			case reflect.Uint8:
+				valU8 := value.(uint8)
+				val = reflect.ValueOf(int32(valU8))
+				goto SETVALUE
+				//case float64:
+			case reflect.Float64:
+				valF64 := value.(float64)
+				val = reflect.ValueOf(int32(valF64))
+				goto SETVALUE
+				//case float32:
+			case reflect.Float32:
+				valF32 := value.(float32)
+				val = reflect.ValueOf(int32(valF32))
+				goto SETVALUE
+			}
+		case reflect.String:
+			switch valType.String() {
+			case "time.Time":
+				valTime := value.(time.Time)
+				val = reflect.ValueOf(TimeISOStr(valTime))
+				goto SETVALUE
+			case "[]uint8":
+				valUuid := value.([]uint8)
+				val = reflect.ValueOf(string(valUuid))
+				goto SETVALUE
+
+			case "[16]uint8":
+				uuid16 := value.([16]uint8)
+				uuidv := *(*uuid.UUID)(unsafe.Pointer(&uuid16))
+				val = reflect.ValueOf(uuidv.String())
+				goto SETVALUE
+
+			case "map[string]interface {}":
+				//json
+				b, err := json.Marshal(value)
+				if err != nil {
+					return err
+				}
+				val = reflect.ValueOf(string(b))
+				goto SETVALUE
+
+			case "int32":
+				if WarnInt2StrInSetField {
+					fmt.Println("setfield to string warn:", name, valType.String())
+				}
+				v32 := value.(int32)
+				val = reflect.ValueOf(strconv.Itoa(int(v32)))
+				goto SETVALUE
+			case "int64":
+				usec := value.(int64)
+
+				if strings.Contains(name, "Time") || strings.Contains(name, "time") {
+					//time format, Number of microseconds since midnight
+					hours := usec / microsecondsPerHour
+					usec -= hours * microsecondsPerHour
+					minutes := usec / microsecondsPerMinute
+					usec -= minutes * microsecondsPerMinute
+					seconds := usec / microsecondsPerSecond
+					//usec -= seconds * microsecondsPerSecond
+
+					s := fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
+					val = reflect.ValueOf(s)
+				} else {
+					s := strconv.FormatInt(usec, 10)
+					val = reflect.ValueOf(s)
+				}
+				goto SETVALUE
+			case "*interface {}":
+				ptr := value.(*any)
+				v, ok := (*ptr).(string)
+				if ok {
+					val = reflect.ValueOf(v)
+					goto SETVALUE
+				}
+			}
 		case reflect.Int64:
 			switch valType.Kind() {
 			//case pointer:
@@ -241,172 +407,6 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				val = reflect.ValueOf(int64(valF32))
 				goto SETVALUE
 
-			}
-		case reflect.String:
-			switch valType.String() {
-			case "time.Time":
-				valTime := value.(time.Time)
-				val = reflect.ValueOf(TimeISOStr(valTime))
-				goto SETVALUE
-			case "[]uint8":
-				valUuid := value.([]uint8)
-				val = reflect.ValueOf(string(valUuid))
-				goto SETVALUE
-
-			case "[16]uint8":
-				uuid16 := value.([16]uint8)
-				uuidv := *(*uuid.UUID)(unsafe.Pointer(&uuid16))
-				val = reflect.ValueOf(uuidv.String())
-				goto SETVALUE
-
-			case "map[string]interface {}":
-				//json
-				b, err := json.Marshal(value)
-				if err != nil {
-					return err
-				}
-				val = reflect.ValueOf(string(b))
-				goto SETVALUE
-
-			case "int32":
-				if WarnInt2StrInSetField {
-					fmt.Println("setfield to string warn:", name, valType.String())
-				}
-				v32 := value.(int32)
-				val = reflect.ValueOf(strconv.Itoa(int(v32)))
-				goto SETVALUE
-			case "int64":
-				usec := value.(int64)
-
-				if strings.Contains(name, "Time") || strings.Contains(name, "time") {
-					//time format, Number of microseconds since midnight
-					hours := usec / microsecondsPerHour
-					usec -= hours * microsecondsPerHour
-					minutes := usec / microsecondsPerMinute
-					usec -= minutes * microsecondsPerMinute
-					seconds := usec / microsecondsPerSecond
-					//usec -= seconds * microsecondsPerSecond
-
-					s := fmt.Sprintf("%02d:%02d:%02d", hours, minutes, seconds)
-					val = reflect.ValueOf(s)
-				} else {
-					s := strconv.FormatInt(usec, 10)
-					val = reflect.ValueOf(s)
-				}
-				goto SETVALUE
-			case "*interface {}":
-				ptr := value.(*any)
-				v, ok := (*ptr).(string)
-				if ok {
-					val = reflect.ValueOf(v)
-					goto SETVALUE
-				}
-			}
-		case reflect.Int32:
-			switch valType.Kind() {
-			case reflect.Pointer:
-				ptr := value.(*any)
-				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-
-					// int16
-				case int16:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//int8
-				case int8:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint64
-				case uint64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint32
-				case uint32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				//uint
-				case uint:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint16
-				case uint16:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint8
-				case uint8:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//float64
-				case float64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//float32
-				case float32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				}
-			case reflect.Int64:
-				valI64 := value.(int64)
-				val = reflect.ValueOf(int32(valI64))
-				goto SETVALUE
-			//int
-			case reflect.Int:
-				valI := value.(int)
-				val = reflect.ValueOf(int32(valI))
-				goto SETVALUE
-				//int16
-			case reflect.Int16:
-				valI16 := value.(int16)
-				val = reflect.ValueOf(int32(valI16))
-				goto SETVALUE
-				//int8
-			case reflect.Int8:
-				valI8 := value.(int8)
-				val = reflect.ValueOf(int32(valI8))
-				goto SETVALUE
-			case reflect.Uint64:
-				valU64 := value.(uint64)
-				val = reflect.ValueOf(int32(valU64))
-				goto SETVALUE
-			case reflect.Uint32:
-				valU32 := value.(uint32)
-				val = reflect.ValueOf(int32(valU32))
-				goto SETVALUE
-			//uint
-			case reflect.Uint:
-				valU := value.(uint)
-				val = reflect.ValueOf(int32(valU))
-				goto SETVALUE
-				//uint16
-			case reflect.Uint16:
-				valU16 := value.(uint16)
-				val = reflect.ValueOf(int32(valU16))
-				goto SETVALUE
-				//uint8
-			case reflect.Uint8:
-				valU8 := value.(uint8)
-				val = reflect.ValueOf(int32(valU8))
-				goto SETVALUE
-				//case float64:
-			case reflect.Float64:
-				valF64 := value.(float64)
-				val = reflect.ValueOf(int32(valF64))
-				goto SETVALUE
-				//case float32:
-			case reflect.Float32:
-				valF32 := value.(float32)
-				val = reflect.ValueOf(int32(valF32))
-				goto SETVALUE
 			}
 		case reflect.Uint32:
 			switch valType.Kind() {
