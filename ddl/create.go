@@ -672,7 +672,7 @@ func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 }
 
 func getSqliteIndex(db *sql.DB, idxName string) (indexColumns map[string]struct{}, err error) {
-	query := fmt.Sprintf("select name from PRAGMA_index_info(%s)", idxName)
+	query := fmt.Sprintf("select name from pragma_index_info('%s')", idxName)
 	rows, err := db.Query(query)
 	if err != nil {
 		return nil, err
