@@ -102,6 +102,9 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		if pdb.Unique {
 			if len(pdb.UniqueName) > 0 {
 				uniquekeysMap[pdb.UniqueName] = append(uniquekeysMap[pdb.UniqueName], fieldDesc)
+			} else {
+				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldname)
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
 			}
 		}
 	}
@@ -161,9 +164,6 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		if fieldPdb.IsPrimary() {
 
 		} else {
-			if fieldPdb.Unique && len(fieldPdb.UniqueName) == 0 {
-				sqlStr += protosql.UNIQUE
-			}
 
 			if fieldPdb.NotNull {
 				sqlStr += protosql.NOT_NULL
