@@ -3,6 +3,7 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"google.golang.org/protobuf/encoding/protojson"
 	"strings"
 
 	"github.com/ygrpc/protodb"
@@ -200,10 +201,21 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 
 		isValZero := pdbutil.IsZeroValue(val)
 		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		hasSetDefaultValue := false
 		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
 			val = pdbutil.NullValue
+			hasSetDefaultValue = true
 		} else if isValZero && hasDefaultValue {
 			val = fieldPdb.DefaultValue2SQLArgs()
+			hasSetDefaultValue = true
+		}
+
+		if field.Kind() == protoreflect.MessageKind && !hasSetDefaultValue {
+			b, err := protojson.Marshal(val.(proto.Message))
+			if err != nil {
+				return "", nil, fmt.Errorf("marshal msg:%s field:%s msg to json err: %s", msgDesc.Name(), fieldName, err.Error())
+			}
+			val = string(b)
 		}
 
 		sqlVals = append(sqlVals, val)
