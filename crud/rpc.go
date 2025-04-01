@@ -177,7 +177,7 @@ func Crud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnGetDb T
 			return resp, nil
 		}
 	case protodb.CrudReqCode_SELECTONE:
-		newMsg, err := DbSelectOne(db, dbmsg, req.SelectOneKeyFields, req.SelectResultFields, req.SchemeName)
+		newMsg, err := DbSelectOne(db, dbmsg, req.SelectOneKeyFields, req.SelectResultFields, req.SchemeName, true)
 		if err != nil {
 			return nil, fmt.Errorf("selectone msg %s err: %w", req.TableName, err)
 		}

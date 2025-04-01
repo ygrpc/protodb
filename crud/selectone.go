@@ -14,7 +14,8 @@ import (
 
 // DbSelectOne select one message from db, if keyColumns is empty, use primary key fields as key columns, keyColumns need is unique
 // if resultColumns is empty, use all fields as result columns
-func DbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string) (returnMsg proto.Message, err error) {
+// limitPkUk: if true, limit primary key or unique key columns for select one, keyColumns should be unique
+func DbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, limitPkUk bool) (returnMsg proto.Message, err error) {
 	if len(keyColumns) > 0 {
 		err = checkSQLColumnsIsNoInjection(keyColumns)
 		if err != nil {
@@ -35,15 +36,15 @@ func DbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColum
 	tableName := string(msgDesc.Name())
 	dbdialect := sqldb.GetDBDialect(db)
 
-	return dbSelectOne(db, msg, keyColumns, resultColumns, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
+	return dbSelectOne(db, msg, keyColumns, resultColumns, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, limitPkUk)
 }
 
 func dbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
-	dbdialect sqldb.TDBDialect) (returnMsg proto.Message, err error) {
+	dbdialect sqldb.TDBDialect, limitPkUk bool) (returnMsg proto.Message, err error) {
 
-	sqlStr, sqlVals, err := dbBuildSqlSelectOne(msg, keyColumns, resultColumns, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
+	sqlStr, sqlVals, err := dbBuildSqlSelectOne(msg, keyColumns, resultColumns, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, limitPkUk)
 	if err != nil {
 		return nil, err
 	}
@@ -74,7 +75,7 @@ func dbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColum
 func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
-	dbdialect sqldb.TDBDialect) (sqlStr string, sqlVals []interface{}, err error) {
+	dbdialect sqldb.TDBDialect, limitPkUk bool) (sqlStr string, sqlVals []interface{}, err error) {
 
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_SELECT)
@@ -103,12 +104,15 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 			return "", nil, fmt.Errorf("no primary key field for table %s", tableName)
 		}
 	} else {
-		primaryOrUniqueKeyFieldNames := pdbutil.GetPrimaryKeyOrUniqueFieldDescs(msgDesc, msgFieldDescs, false)
-		for _, fieldName := range keyColumns {
-			if _, ok := primaryOrUniqueKeyFieldNames[fieldName]; !ok {
-				return "", nil, fmt.Errorf("column %s:%s is not primary or unique key", tableName, fieldName)
-			}
+		if limitPkUk {
+			//todo here has bug,if unique key has multi columns,it will not work well
+			primaryOrUniqueKeyFieldNames := pdbutil.GetPrimaryKeyOrUniqueFieldDescs(msgDesc, msgFieldDescs, false)
+			for _, fieldName := range keyColumns {
+				if _, ok := primaryOrUniqueKeyFieldNames[fieldName]; !ok {
+					return "", nil, fmt.Errorf("column %s:%s is not primary or unique key", tableName, fieldName)
+				}
 
+			}
 		}
 	}
 
@@ -140,6 +144,8 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 		}
 		sqlVals = append(sqlVals, val)
 	}
+
+	sb.WriteString(protosql.SQL_LIMIT_1)
 
 	sqlStr = sb.String()
 
