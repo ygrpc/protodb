@@ -13,7 +13,7 @@ import (
 
 // interface FieldProtoMsg
 type FieldProtoMsg interface {
-	GetFieldProtoMsg(fieldName string) (proto.Message, bool)
+	FieldProtoMsg(fieldName string) (proto.Message, bool)
 }
 
 // DbScan2ProtoMsg scan db rows to proto message, the proto msg has no nested message
@@ -107,10 +107,10 @@ func SetProtoMsgField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor,
 		// get filed proto msg by filedprotomsg interface
 		filedProtoMsg, ok := msg.(FieldProtoMsg)
 		if ok {
-			fieldMsg, fieldMsgOk := filedProtoMsg.GetFieldProtoMsg(fieldName)
+			fieldMsg, fieldMsgOk := filedProtoMsg.FieldProtoMsg(fieldName)
 			if !fieldMsgOk {
 				fieldMsgProto := fieldDesc.Message()
-				return fmt.Errorf("GetFieldProtoMsg:can't get filed proto msg for field %s.%s", fieldMsgProto.Name(), fieldName)
+				return fmt.Errorf("FieldProtoMsg:can't get filed proto msg for field %s.%s", fieldMsgProto.Name(), fieldName)
 			}
 			err := Val2ProtoMsgByJson(fieldMsg, fieldVal)
 			if err != nil {
