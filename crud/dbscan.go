@@ -69,6 +69,9 @@ func Val2ProtoMsgByJson(msg proto.Message, value interface{}) error {
 
 	// 3. Use a type switch to determine the type of 'value' and get bytes
 	switch v := value.(type) {
+	case *any:
+		anyVal := *v
+		return Val2ProtoMsgByJson(msg, anyVal)
 	case string:
 		// If it's a string, convert it to a byte slice
 		b = []byte(v)
