@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/msgstore"
 	"github.com/ygrpc/protodb/pdbutil"
@@ -11,7 +13,6 @@ import (
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"strings"
 )
 
 type TDbTableInitSql struct {
@@ -68,10 +69,21 @@ func DbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, checkRefference
 	}
 
 	if sqlInitSql, ok := builtInitSqlMap[tableName]; ok {
+		if sqlInitSql == nil {
+			return nil, fmt.Errorf("circular reference detected for table %s", tableName)
+		}
 		return sqlInitSql, nil
 	}
 
-	return dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
+	// put nil to mark this table is in process
+	builtInitSqlMap[tableName] = nil
+
+	initSqlItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, checkRefference, withComment, builtInitSqlMap)
+	builtInitSqlMap[tableName] = initSqlItem
+	if err != nil {
+		delete(builtInitSqlMap, tableName)
+	}
+	return initSqlItem, err
 }
 
 func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName string,
@@ -184,7 +196,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 			if checkRefference {
 				err := addRefferenceDepSqlForCreate(initSqlItem, fieldPdb.Reference, db, withComment, builtInitSqlMap)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("%s add reference %s fail:%s", tableName, fieldPdb.Reference, err.Error())
 				}
 			}
 		}
@@ -254,10 +266,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	}
 
 	initSqlItem.SqlStr = append(initSqlItem.SqlStr, sqlStr)
-
-	builtInitSqlMap[initSqlItem.TableName] = initSqlItem
 	return initSqlItem, nil
-
 }
 
 func createOneUniqueKeySql(tableName string, uniqueName string, uniquekeysFields []protoreflect.FieldDescriptor) string {
@@ -330,11 +339,7 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 		return fmt.Errorf("reference table msg %s not found for %s", refTableName, item.TableName)
 	}
 
-	msgPm := depMsg.ProtoReflect()
-	msgDesc := msgPm.Descriptor()
-	msgFieldDescs := msgDesc.Fields()
-
-	depSqlItem, err := dbCreateSQL(db, depMsg, item.DbSchema, refTableName, msgDesc, msgFieldDescs, true, withComment, builtInitSqlMap)
+	depSqlItem, err := DbCreateSQL(db, depMsg, item.DbSchema, true, withComment, builtInitSqlMap)
 	if err != nil {
 		return err
 	}
@@ -374,8 +379,14 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 	tableName := string(msgDesc.Name())
 
 	if sqlInitSql, ok := builtInitSqlMap[tableName]; ok {
+		if sqlInitSql == nil {
+			return nil, fmt.Errorf("circular reference detected for table %s", tableName)
+		}
 		return sqlInitSql, nil
 	}
+
+	// put nil to mark this table is in process
+	builtInitSqlMap[tableName] = nil
 
 	// Get database dialect
 	dbdialect := sqldb.GetDBDialect(db)
@@ -399,7 +410,10 @@ func DbMigrateTable(db *sql.DB, msg proto.Message, dbschema string, checkReffere
 		err = fmt.Errorf("not support database dialect %s", dbdialect.String())
 	}
 
-	builtInitSqlMap[migrateItem.TableName] = migrateItem
+	builtInitSqlMap[tableName] = migrateItem
+	if err != nil {
+		delete(builtInitSqlMap, tableName)
+	}
 
 	return migrateItem, err
 }
@@ -576,7 +590,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 				depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
 				if err != nil {
-					return nil, err
+					return nil, fmt.Errorf("%s migrate reference field %s fail:%s", migrateItem.TableName, fieldName, err.Error())
 				}
 				migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
 				migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
@@ -656,8 +670,7 @@ func isSqlInitItemExist(item *TDbTableInitSql, tableName string, existTableMap m
 func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
 	builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
-
-	return nil, fmt.Errorf("not support database dialect Mysql now")
+	return nil, errors.New("not support database dialect Mysql now")
 }
 
 // IsSQLiteTableExists check if table exists.
@@ -813,7 +826,7 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 			depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
 			if err != nil {
-				return nil, err
+				return nil, fmt.Errorf("%s migrate reference field %s fail:%s", migrateItem.TableName, fieldName, err.Error())
 			}
 			migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
 			migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
