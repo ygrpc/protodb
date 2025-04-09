@@ -196,7 +196,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 			if checkRefference {
 				err := addRefferenceDepSqlForCreate(initSqlItem, fieldPdb.Reference, db, withComment, builtInitSqlMap)
 				if err != nil {
-					return nil, fmt.Errorf("%s add reference %s fail:%s", tableName, fieldPdb.Reference, err.Error())
+					return nil, fmt.Errorf("%s add reference %s for field %s fail:%s", tableName, fieldPdb.Reference, fieldname, err.Error())
 				}
 			}
 		}
@@ -582,6 +582,10 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 			if err != nil {
 				return nil, fmt.Errorf("get reference table name %s err: %s", migrateItem.TableName, err)
 			}
+			if depMsgName == migrateItem.TableName {
+				//self reference
+				continue
+			}
 			if !isSqlInitItemExist(migrateItem, depMsgName, builtInitSqlMap) {
 				depMsg, found := msgstore.GetMsg(depMsgName, false)
 				if !found {
@@ -590,7 +594,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 
 				depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
 				if err != nil {
-					return nil, fmt.Errorf("%s migrate reference field %s fail:%s", migrateItem.TableName, fieldName, err.Error())
+					return nil, fmt.Errorf("%s migrate reference %s for field %s fail:%s", migrateItem.TableName, pdb.Reference, fieldName, err.Error())
 				}
 				migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
 				migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
@@ -819,6 +823,10 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 			if err != nil {
 				return nil, fmt.Errorf("get reference table name %s err: %s", migrateItem.TableName, err)
 			}
+			if depMsgName == migrateItem.TableName {
+				//self reference
+				continue
+			}
 			depMsg, found := msgstore.GetMsg(depMsgName, false)
 			if !found {
 				return nil, fmt.Errorf("reference table msg %s not found for %s", pdb.Reference, depMsgName)
@@ -826,7 +834,7 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 
 			depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
 			if err != nil {
-				return nil, fmt.Errorf("%s migrate reference field %s fail:%s", migrateItem.TableName, fieldName, err.Error())
+				return nil, fmt.Errorf("%s migrate reference %s for field %s fail:%s", migrateItem.TableName, pdb.Reference, fieldName, err.Error())
 			}
 			migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
 			migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
