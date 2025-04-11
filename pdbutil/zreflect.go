@@ -616,6 +616,93 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				val = reflect.ValueOf(uint64(valF32))
 				goto SETVALUE
 			}
+		case reflect.Bool:
+			switch valType.Kind() {
+			// pointer
+			case reflect.Pointer:
+				ptr := value.(*interface{})
+				ifaceValue := *ptr
+				switch v := ifaceValue.(type) {
+				case int64:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case int32:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case int:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case int16:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case int8:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case uint64:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case uint32:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case uint:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case uint16:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case uint8:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case float64:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case float32:
+					val = reflect.ValueOf(v != 0)
+					goto SETVALUE
+				case bool:
+					val = reflect.ValueOf(v)
+					goto SETVALUE
+				}
+			case reflect.Int64:
+				val = reflect.ValueOf(value.(int64) != 0)
+				goto SETVALUE
+			case reflect.Int32:
+				val = reflect.ValueOf(value.(int32) != 0)
+				goto SETVALUE
+			case reflect.Int:
+				val = reflect.ValueOf(value.(int) != 0)
+				goto SETVALUE
+			case reflect.Int16:
+				val = reflect.ValueOf(value.(int16) != 0)
+				goto SETVALUE
+			case reflect.Int8:
+				val = reflect.ValueOf(value.(int8) != 0)
+				goto SETVALUE
+			case reflect.Uint64:
+				val = reflect.ValueOf(value.(uint64) != 0)
+				goto SETVALUE
+			case reflect.Uint32:
+				val = reflect.ValueOf(value.(uint32) != 0)
+				goto SETVALUE
+			case reflect.Uint:
+				val = reflect.ValueOf(value.(uint) != 0)
+				goto SETVALUE
+			case reflect.Uint16:
+				val = reflect.ValueOf(value.(uint16) != 0)
+				goto SETVALUE
+			case reflect.Uint8:
+				val = reflect.ValueOf(value.(uint8) != 0)
+				goto SETVALUE
+			case reflect.Float64:
+				val = reflect.ValueOf(value.(float64) != 0)
+				goto SETVALUE
+			case reflect.Float32:
+				val = reflect.ValueOf(value.(float32) != 0)
+				goto SETVALUE
+			case reflect.Bool:
+				val = reflect.ValueOf(value.(bool))
+				goto SETVALUE
+			}
 		}
 		invalidTypeError := errors.New(name + ": value type didn't match obj field type " + structFieldType.String() + ":" + valType.String())
 		fmt.Println(name, invalidTypeError)
