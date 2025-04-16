@@ -3,10 +3,11 @@ package pdbutil
 import (
 	"database/sql"
 	"fmt"
+	"strings"
+
 	"github.com/ygrpc/protodb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"strings"
 )
 
 var NullValue = sql.NullString{String: "", Valid: false}
@@ -46,7 +47,6 @@ func GetPDBM(msgDescriptor protoreflect.MessageDescriptor) (pdbm *protodb.PDBMsg
 		pdbm = EmptyPDBM
 	}
 	return pdbm, found
-
 }
 
 func IsZeroValue(val interface{}) bool {
