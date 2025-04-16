@@ -124,60 +124,12 @@ func SetField(obj interface{}, name string, value interface{}) error {
 	if structFieldType != valType {
 		//fmt.Println("name:", name, "v type:", valType.String())
 		switch structFieldType.Kind() {
-
 		case reflect.Int32:
 			switch valType.Kind() {
 			case reflect.Pointer:
 				ptr := value.(*any)
 				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-
-					// int16
-				case int16:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//int8
-				case int8:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint64
-				case uint64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint32
-				case uint32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				//uint
-				case uint:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint16
-				case uint16:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//uint8
-				case uint8:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//float64
-				case float64:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-					//float32
-				case float32:
-					val = reflect.ValueOf(int32(v))
-					goto SETVALUE
-				}
+				return SetField(obj, name, ifaceValue)
 			case reflect.Int64:
 				valI64 := value.(int64)
 				val = reflect.ValueOf(int32(valI64))
@@ -285,68 +237,16 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				goto SETVALUE
 			case "*interface {}":
 				ptr := value.(*any)
-				v, ok := (*ptr).(string)
-				if ok {
-					val = reflect.ValueOf(v)
-					goto SETVALUE
-				}
+				ifaceValue := *ptr
+				return SetField(obj, name, ifaceValue)
 			}
 		case reflect.Int64:
 			switch valType.Kind() {
 			//case pointer:
 			case reflect.Pointer:
-				ptr := value.(*interface{})
+				ptr := value.(*any)
 				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(v)
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-				case int16:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-				case int8:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-					// uint
-				case uint:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-
-					//uint64
-				case uint64:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-
-					//uint32
-				case uint32:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-
-					//uint16
-				case uint16:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-
-					//uint8
-				case uint8:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-					//float64
-				case float64:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-					//float32
-				case float32:
-					val = reflect.ValueOf(int64(v))
-					goto SETVALUE
-				}
-
+				return SetField(obj, name, ifaceValue)
 			case reflect.Int32:
 				valI32 := value.(int32)
 				val = reflect.ValueOf(int64(valI32))
@@ -406,61 +306,14 @@ func SetField(obj interface{}, name string, value interface{}) error {
 				valF32 := value.(float32)
 				val = reflect.ValueOf(int64(valF32))
 				goto SETVALUE
-
 			}
 		case reflect.Uint32:
 			switch valType.Kind() {
 			//pointer
 			case reflect.Pointer:
-				ptr := value.(*interface{})
+				ptr := value.(*any)
 				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					// int16
-				case int16:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//int8
-				case int8:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//uint64
-				case uint64:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//uint32
-				case uint32:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-				//uint
-				case uint:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//uint16
-				case uint16:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//uint8
-				case uint8:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//float64
-				case float64:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-					//float32
-				case float32:
-					val = reflect.ValueOf(uint32(v))
-					goto SETVALUE
-				}
+				return SetField(obj, name, ifaceValue)
 			case reflect.Int64:
 				valI64 := value.(int64)
 				val = reflect.ValueOf(uint32(valI64))
@@ -519,48 +372,9 @@ func SetField(obj interface{}, name string, value interface{}) error {
 			switch valType.Kind() {
 			//pointer
 			case reflect.Pointer:
-				ptr := value.(*interface{})
+				ptr := value.(*any)
 				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					// int16
-				case int16:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					//int8
-				case int8:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					//uint64
-				case uint64:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					//uint32
-				case uint32:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-				//uint
-				case uint:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					//float64
-				case float64:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-					//float32
-				case float32:
-					val = reflect.ValueOf(uint64(v))
-					goto SETVALUE
-				}
-				//int64
+				return SetField(obj, name, ifaceValue)
 			case reflect.Int64:
 				valI64 := value.(int64)
 				val = reflect.ValueOf(uint64(valI64))
@@ -620,49 +434,9 @@ func SetField(obj interface{}, name string, value interface{}) error {
 			switch valType.Kind() {
 			// pointer
 			case reflect.Pointer:
-				ptr := value.(*interface{})
+				ptr := value.(*any)
 				ifaceValue := *ptr
-				switch v := ifaceValue.(type) {
-				case int64:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case int32:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case int:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case int16:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case int8:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case uint64:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case uint32:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case uint:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case uint16:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case uint8:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case float64:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case float32:
-					val = reflect.ValueOf(v != 0)
-					goto SETVALUE
-				case bool:
-					val = reflect.ValueOf(v)
-					goto SETVALUE
-				}
+				return SetField(obj, name, ifaceValue)
 			case reflect.Int64:
 				val = reflect.ValueOf(value.(int64) != 0)
 				goto SETVALUE
@@ -792,7 +566,6 @@ func GetStructAllFieldNamesAndJsonTag(obj interface{}, deep bool, fieldnamefirst
 				} else {
 					allfieldAndJsons[before] = field.Name
 				}
-
 			}
 		}
 	}
