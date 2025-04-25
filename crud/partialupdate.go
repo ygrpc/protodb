@@ -116,6 +116,11 @@ func dbUpdatePartialReturnOldAndNew(db *sql.DB, msg proto.Message, updateFields 
 
 	dbdialect := sqldb.GetDBDialect(db)
 
+	//if db is sqlite, return err, sqlite is not support return old and new
+	if dbdialect == sqldb.SQLite {
+		return nil, nil, fmt.Errorf("sqlite is not support return old and new,use selectone + returnnew")
+	}
+
 	sqlStr, sqlVals, err := dbBuildSqlUpdatePartialOldAndNew(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
 	if err != nil {
 		return nil, nil, err

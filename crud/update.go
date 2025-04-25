@@ -251,6 +251,11 @@ func dbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32
 ) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	dbdialect := sqldb.GetDBDialect(db)
 
+	//if db is sqlite, return err, sqlite is not support return old and new
+	if dbdialect == sqldb.SQLite {
+		return nil, nil, fmt.Errorf("sqlite is not support return old and new, use selectone + returnnew")
+	}
+
 	sqlStr, sqlVals, err := dbBuildSqlUpdateOldAndNew(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
 	if err != nil {
 		return nil, nil, err
