@@ -3,8 +3,9 @@ package crud
 import (
 	"database/sql"
 	"fmt"
-	"google.golang.org/protobuf/encoding/protojson"
 	"strings"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
@@ -23,32 +24,28 @@ func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 	tableName := string(msgDesc.Name())
 
 	return dbUpdate(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
-
 }
 
 // dbUpdate update a message in db
 func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
-
+	msgFieldDescs protoreflect.FieldDescriptors,
+) (dmlResult *protodb.CrudResp, err error) {
 	dbdialect := sqldb.GetDBDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {
 		return nil, err
-
 	}
 
 	result, err := db.Exec(sqlStr, sqlVals...)
 	if err != nil {
 		return nil, err
-
 	}
 
 	rowsAffected, err := result.RowsAffected()
 	if err != nil {
 		return nil, err
-
 	}
 
 	dmlResult = &protodb.CrudResp{
@@ -80,8 +77,8 @@ func DbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32
 // dbUpdateReturnNew update a message in db and return the updated message
 func dbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (newMsg proto.Message, err error) {
-
+	msgFieldDescs protoreflect.FieldDescriptors,
+) (newMsg proto.Message, err error) {
 	dbdialect := sqldb.GetDBDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
@@ -112,8 +109,8 @@ func dbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbsc
 func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
-	dbdialect sqldb.TDBDialect, returnUpdated bool) (sqlStr string, sqlVals []interface{}, err error) {
-
+	dbdialect sqldb.TDBDialect, returnUpdated bool,
+) (sqlStr string, sqlVals []interface{}, err error) {
 	sb := strings.Builder{}
 	sb.WriteString(protosql.SQL_UPDATE)
 
@@ -138,7 +135,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		fieldName := string(field.Name())
 
 		if _, ok := primaryKeyFieldNames[fieldName]; ok {
-			//primary key field, skip
+			// primary key field, skip
 			continue
 		}
 
@@ -245,14 +242,13 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	sqlStr = sb.String()
 
 	return sqlStr, sqlVals, nil
-
 }
 
 // dbUpdateReturnOldAndNew updates a message in db and returns both old and new messages
 func dbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
-	msgFieldDescs protoreflect.FieldDescriptors) (oldMsg proto.Message, newMsg proto.Message, err error) {
-
+	msgFieldDescs protoreflect.FieldDescriptors,
+) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	dbdialect := sqldb.GetDBDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdateOldAndNew(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
@@ -284,11 +280,11 @@ func dbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32
 func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
-	dbdialect sqldb.TDBDialect) (sqlStr string, sqlVals []interface{}, err error) {
-
-	//build the sql like below
-	//with old as (select * from ttt where id=1)
-	//update ttt new set username='1234567' from old where new.id=old.id RETURNING old.*,new.*;
+	dbdialect sqldb.TDBDialect,
+) (sqlStr string, sqlVals []interface{}, err error) {
+	// build the sql like below
+	// with old as (select * from ttt where id=1)
+	// update ttt new set username='1234567' from old where new.id=old.id RETURNING old.*,new.*;
 
 	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
 
@@ -332,13 +328,13 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 		sqlVals = append(sqlVals, val)
 	}
 
-	//sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
-	//sb.WriteString(protosql.SQL_UPDATE)
+	// sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
+	// sb.WriteString(protosql.SQL_UPDATE)
 
 	sb.WriteString(" ) UPDATE ")
 	sb.WriteString(tableName)
 	sb.WriteString(" new set ")
-	//sb.WriteString(protosql.SQL_SET)
+	// sb.WriteString(protosql.SQL_SET)
 
 	valFieldNames := make([]string, 0)
 
@@ -348,7 +344,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 		fieldName := string(field.Name())
 
 		if _, ok := primaryKeyFieldNames[fieldName]; ok {
-			//primary key field, skip
+			// primary key field, skip
 			continue
 		}
 
@@ -388,6 +384,8 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 		return "", nil, fmt.Errorf("no field need update")
 	}
 
+	firstPlaceholder = true
+
 	for _, fieldName := range valFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
@@ -420,7 +418,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 
 		sb.WriteString(" new.")
 		sb.WriteString(fieldName)
-		//sb.WriteString(protosql.SQL_EQUEAL)
+		// sb.WriteString(protosql.SQL_EQUEAL)
 		sb.WriteString("=old.")
 		sb.WriteString(fieldName)
 
@@ -431,5 +429,4 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 	sqlStr = sb.String()
 
 	return sqlStr, sqlVals, nil
-
 }
