@@ -98,6 +98,8 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 		if firstPlaceholder {
 			firstPlaceholder = false
 			sb.WriteString(protosql.SQL_WHERE)
+		} else {
+			sb.WriteString(protosql.SQL_AND)
 		}
 
 		for fieldname, fieldValue := range tableQueryReq.Where2 {
