@@ -7,21 +7,9 @@ const SQL_INSERT_VALUES = " VALUES "
 const SQL_UPDATE = " UPDATE "
 const SQL_SET = " SET "
 const SQL_EQUEAL = " = "
-
-// 
-// >
-t SQL_GT = " > "
-
-//
-<
-const SQL_LT = " <
 const SQL_GT = " > "
-E = 
-// <
 const SQL_LT = " < "
-// >=
 const SQL_GTE = " >= "
-// <=
 const SQL_LTE = " <= "
 const SQL_LIKE = " LIKE "
 const SQL_COMMA = " , "
