@@ -100,7 +100,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 		}
 
 		for fieldname, fieldValue := range tableQueryReq.Where2 {
-			fieldop, ok := tableQueryReq.Where2Operator[fieldname]
+			fieldWhereOperator, ok := tableQueryReq.Where2Operator[fieldname]
 			if !ok {
 				return "", nil, fmt.Errorf("where2 field %s has no operator provided", fieldname)
 			}
@@ -119,7 +119,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 			}
 
 			sb.WriteString(fieldname)
-			sb.WriteString(FieldOperator2Str(fieldop))
+			sb.WriteString(WhereOperator2Str(fieldWhereOperator))
 
 			if placeholder == protosql.SQL_QUESTION {
 				sb.WriteString(string(protosql.SQL_QUESTION))
@@ -148,7 +148,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 	return sqlStr, sqlVals, nil
 }
 
-func FieldOperator2Str(fieldop protodb.WhereOperator) string {
+func WhereOperator2Str(fieldop protodb.WhereOperator) string {
 	switch fieldop {
 	case protodb.WhereOperator_WOP_GT:
 		return protosql.SQL_GT
