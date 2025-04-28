@@ -152,6 +152,15 @@ enum CrudResultType {
   OldMsgAndNewMsg = 2;
 }
 
+// where operator
+enum WhereOperator {
+  WOP_UNKNOWN = 0;
+  WOP_GT = 1; // > greater than
+  WOP_LT = 2; // < less than
+  WOP_GTE = 3; // >= greater than or equal
+  WOP_LTE = 4; // <= less than or equal
+}
+
 //crud request
 message CrudReq {
   CrudReqCode Code = 1;
@@ -195,6 +204,10 @@ message TableQueryReq {
   int32 PreferBatchSize = 7;
   // msg format 0:protobuf 1:protobuf json
   int32 MsgFormat = 8;
+  // where2 field operator, fieldname -> op
+  map<string, WhereOperator> Where2Operator = 9;
+  // where2 field value, fieldname -> value
+  map<string, string> Where2 = 10;
 }
 
 message QueryResp {
@@ -225,6 +238,10 @@ message  QueryReq {
   int32 PreferBatchSize = 8;
   // msg format 0:protobuf 1:protobuf json
   int32 MsgFormat = 9;
+  // where2 field operator, fieldname op
+  map<string, WhereOperator> Where2Operator = 10;
+  // where2 field value, fieldname op value
+  map<string, string> Where2 = 11;
 }
 
 // protodb service
