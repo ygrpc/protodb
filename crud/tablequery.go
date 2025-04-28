@@ -47,11 +47,11 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 	placeholder := dbdialect.Placeholder()
 	sqlParaNo := 1
 
+	firstPlaceholder := true
+
 	if len(tableQueryReq.Where) > 0 || len(permissionSqlStr) > 0 {
 
 		sb.WriteString(protosql.SQL_WHERE)
-
-		firstPlaceholder := true
 
 		// Add permission SQL if provided
 		if len(permissionSqlStr) > 0 {
@@ -89,6 +89,44 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 		}
 	}
 
+	//handle where2
+	if len(tableQueryReq.Where2) > 0 {
+		if len(tableQueryReq.Where2) != len(tableQueryReq.Where2Operator) {
+			return "", nil, fmt.Errorf("where2 and where2Operator must have same length")
+		}
+
+		if firstPlaceholder {
+			firstPlaceholder = false
+			sb.WriteString(protosql.SQL_WHERE)
+		}
+
+		for fieldname, fieldValue := range tableQueryReq.Where2 {
+			fieldop, ok := tableQueryReq.Where2Operator[fieldname]
+			if !ok {
+				return "", nil, fmt.Errorf("where2 field %s has no operator provided", fieldname)
+			}
+
+			//check fieldname security
+			err = checkSQLColumnsIsNoInjectionStr(fieldname)
+			if err != nil {
+				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldname, err)
+			}
+
+			sb.WriteString(fieldname)
+			sb.WriteString(FieldOperator2Str(fieldop))
+
+			if placeholder == protosql.SQL_QUESTION {
+				sb.WriteString(string(protosql.SQL_QUESTION))
+			} else {
+				sb.WriteString(string(protosql.SQL_DOLLAR))
+				sb.WriteString(fmt.Sprint(sqlParaNo))
+				sqlParaNo++
+			}
+
+			sqlVals = append(sqlVals, fieldValue)
+		}
+	}
+
 	// Add LIMIT and OFFSET if specified
 	if tableQueryReq.Limit > 0 {
 		sb.WriteString(protosql.SQL_LIMIT)
@@ -102,4 +140,21 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 
 	sqlStr = sb.String()
 	return sqlStr, sqlVals, nil
+}
+
+func FieldOperator2Str(fieldop protodb.WhereOperator) string {
+	switch fieldop {
+	case protodb.WhereOperator_WOP_GT:
+		return " > "
+	case protodb.WhereOperator_WOP_LT:
+		return " < "
+	case protodb.WhereOperator_WOP_GTE:
+		return " >= "
+	case protodb.WhereOperator_WOP_LTE:
+		return " <= "
+	case protodb.WhereOperator_WOP_LIKE:
+		return " LIKE "
+	default:
+		return " unsupported operator: " + fmt.Sprint(fieldop)
+	}
 }

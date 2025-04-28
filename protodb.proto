@@ -154,11 +154,18 @@ enum CrudResultType {
 
 // where operator
 enum WhereOperator {
+  // unknown
   WOP_UNKNOWN = 0;
-  WOP_GT = 1; // > greater than
-  WOP_LT = 2; // < less than
-  WOP_GTE = 3; // >= greater than or equal
-  WOP_LTE = 4; // <= less than or equal
+  // > greater than
+  WOP_GT = 1;
+  // < less than
+  WOP_LT = 2;
+  // >= greater than or equal
+  WOP_GTE = 3;
+  // <= less than or equal
+  WOP_LTE = 4;
+  // like
+  WOP_LIKE = 5;
 }
 
 //crud request
