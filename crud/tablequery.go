@@ -96,10 +96,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 		}
 
 		if firstPlaceholder {
-			firstPlaceholder = false
 			sb.WriteString(protosql.SQL_WHERE)
-		} else {
-			sb.WriteString(protosql.SQL_AND)
 		}
 
 		for fieldname, fieldValue := range tableQueryReq.Where2 {
@@ -112,6 +109,13 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 			err = checkSQLColumnsIsNoInjectionStr(fieldname)
 			if err != nil {
 				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldname, err)
+			}
+
+			if firstPlaceholder {
+				//has written where before
+				firstPlaceholder = false
+			} else {
+				sb.WriteString(protosql.SQL_AND)
 			}
 
 			sb.WriteString(fieldname)
