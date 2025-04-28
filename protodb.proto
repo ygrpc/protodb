@@ -166,6 +166,10 @@ enum WhereOperator {
   WOP_LTE = 4;
   // like
   WOP_LIKE = 5;
+  // equal
+  WOP_EQ = 6;
+
+
 }
 
 //crud request
