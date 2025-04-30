@@ -35,11 +35,11 @@ func FnProtodbCrudPermissionEmpty(meta http.Header, schemaName string, crudCode 
 	return nil
 }
 
-type TfnTableQueryPermission func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error)
+type TfnTableQueryPermission func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherSqlStr string, whereSqlVals []any, err error)
 
 // FnTableQueryPermissionEmpty empty where, allow query all rows
-func FnTableQueryPermissionEmpty(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, err error) {
-	return "", nil
+func FnTableQueryPermissionEmpty(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (wherStr string, whereSqlVals []any, err error) {
+	return "", nil, nil
 }
 
 type TfnSendQueryResp func(resp *protodb.QueryResp) error
@@ -220,16 +220,17 @@ func TableQuery(ctx context.Context, meta http.Header, req *protodb.TableQueryRe
 	}
 
 	permissionSqlStr := ""
+	permissionSqlVals := []any{}
 
 	if fnTableQueryPermission != nil {
-		permissionSqlStr, err = fnTableQueryPermission(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
+		permissionSqlStr, permissionSqlVals, err = fnTableQueryPermission(meta, TableQueryReq.SchemeName, TableQueryReq.TableName, db, dbmsg)
 
 		if err != nil {
 			return sendErr(fmt.Errorf("permission check for table %s err: %w", TableQueryReq.TableName, err))
 		}
 	}
 
-	sqlStr, sqlVals, err := TableQueryBuildSql(db, TableQueryReq, permissionSqlStr)
+	sqlStr, sqlVals, err := TableQueryBuildSql(db, TableQueryReq, permissionSqlStr, permissionSqlVals)
 
 	if err != nil {
 		return sendErr(fmt.Errorf("build query sql for %s err: %w", TableQueryReq.TableName, err))

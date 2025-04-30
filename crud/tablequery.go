@@ -17,7 +17,7 @@ type TqueryItem struct {
 	Msg   proto.Message
 }
 
-func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string) (sqlStr string, sqlVals []interface{}, err error) {
+func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlVals []any) (sqlStr string, sqlVals []interface{}, err error) {
 	// Check result columns
 	if len(tableQueryReq.ResultColumnNames) > 0 {
 		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames)
@@ -59,6 +59,10 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 			sb.WriteString(permissionSqlStr)
 			sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
 			firstPlaceholder = false
+			if len(permissionSqlVals) > 0 {
+				sqlVals = append(sqlVals, permissionSqlVals...)
+				sqlParaNo += len(permissionSqlVals)
+			}
 		}
 
 		// Add conditions from where map
