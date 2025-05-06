@@ -38,6 +38,16 @@ func checkSQLColumnsIsNoInjectionStr(columnName string) error {
 			continue
 		} else if c == ' ' {
 			continue
+		} else if c == ':' {
+			continue
+		} else if c == '+' {
+			continue
+		} else if c == '-' {
+			continue
+		} else if c == '>' {
+			continue
+		} else if c == '.' {
+			continue
 		}
 
 		return fmt.Errorf("column %s contains invalid character %c", columnName, c)
