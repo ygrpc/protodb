@@ -20,7 +20,7 @@ type TqueryItem struct {
 func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlVals []any) (sqlStr string, sqlVals []interface{}, err error) {
 	// Check result columns
 	if len(tableQueryReq.ResultColumnNames) > 0 {
-		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames)
+		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames, ColumnNameCheckMethodInWhereOrResult)
 		if err != nil {
 			return "", nil, fmt.Errorf("check resultColumns err: %w", err)
 		}
@@ -73,7 +73,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 			firstPlaceholder = false
 
 			//check fieldname security
-			err = checkSQLColumnsIsNoInjectionStr(fieldName)
+			err = checkSQLColumnsIsNoInjectionInWhere(fieldName)
 			if err != nil {
 				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldName, err)
 			}
@@ -110,7 +110,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 			}
 
 			//check fieldname security
-			err = checkSQLColumnsIsNoInjectionStr(fieldname)
+			err = checkSQLColumnsIsNoInjectionInWhere(fieldname)
 			if err != nil {
 				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldname, err)
 			}

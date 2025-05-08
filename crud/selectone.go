@@ -17,14 +17,14 @@ import (
 // limitPkUk: if true, limit primary key or unique key columns for select one, keyColumns should be unique
 func DbSelectOne(db *sql.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, limitPkUk bool) (returnMsg proto.Message, err error) {
 	if len(keyColumns) > 0 {
-		err = checkSQLColumnsIsNoInjection(keyColumns)
+		err = checkSQLColumnsIsNoInjection(keyColumns, ColumnNameCheckMethodStrict)
 		if err != nil {
 			return nil, err
 		}
 	}
 
 	if len(resultColumns) > 0 {
-		err = checkSQLColumnsIsNoInjection(resultColumns)
+		err = checkSQLColumnsIsNoInjection(resultColumns, ColumnNameCheckMethodInWhereOrResult)
 		if err != nil {
 			return nil, err
 		}
