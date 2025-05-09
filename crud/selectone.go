@@ -105,11 +105,19 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 		}
 	} else {
 		if limitPkUk {
-			//todo here has bug,if unique key has multi columns,it will not work well
 			primaryOrUniqueKeyFieldNames := pdbutil.GetPrimaryKeyOrUniqueFieldDescs(msgDesc, msgFieldDescs, false)
 			for _, fieldName := range keyColumns {
-				if _, ok := primaryOrUniqueKeyFieldNames[fieldName]; !ok {
+				constraint, ok := primaryOrUniqueKeyFieldNames[strings.ToLower(fieldName)]
+				if !ok {
 					return "", nil, fmt.Errorf("column %s:%s is not primary or unique key", tableName, fieldName)
+				}
+				if len(keyColumns) != len(constraint.Fields) {
+					gotColumns := strings.Join(keyColumns, ",")
+					needCoumns := ""
+					for fieldName := range constraint.Fields {
+						needCoumns += fieldName + ","
+					}
+					return "", nil, fmt.Errorf("not equal columns for %s, need [%s], got [%s]", constraint.PrimaryOrUniqueName, needCoumns, gotColumns)
 				}
 
 			}

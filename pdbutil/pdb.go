@@ -106,9 +106,17 @@ func GetPrimaryKeyFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDes
 	return result
 }
 
-// GetPrimaryKeyOrUniqueFieldDescs get primary key or unique field descriptors, primaryKey|unique -> field descriptor
-func GetPrimaryKeyOrUniqueFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, nameLowercase bool) map[string]protoreflect.FieldDescriptor {
-	result := make(map[string]protoreflect.FieldDescriptor)
+type TuniqueConstraints struct {
+	//if is primary, = primary
+	//if is unique and not specify unique name, = field name
+	//if is unique and specify unique name, = unique name
+	PrimaryOrUniqueName string
+	Fields              map[string]protoreflect.FieldDescriptor
+}
+
+// GetPrimaryKeyOrUniqueFieldDescs get primary key or unique field descriptors, constraint name -> *TuniqueConstraints
+func GetPrimaryKeyOrUniqueFieldDescs(msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, nameLowercase bool) map[string]*TuniqueConstraints {
+	r := make(map[string]*TuniqueConstraints)
 
 	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
 		field := msgFieldDescs.Get(fi)
@@ -116,12 +124,29 @@ func GetPrimaryKeyOrUniqueFieldDescs(msgDesc protoreflect.MessageDescriptor, msg
 		if fieldPdb != nil && (fieldPdb.IsPrimary() || fieldPdb.IsUnique() || len(fieldPdb.UniqueName) > 0) {
 			fieldName := string(field.Name())
 			if nameLowercase {
-				result[strings.ToLower(fieldName)] = field
-			} else {
-				result[fieldName] = field
+				fieldName = strings.ToLower(fieldName)
 			}
+
+			uniqueName := fieldPdb.UniqueName
+			if fieldPdb.IsPrimary() {
+				uniqueName = "primary"
+			}
+			if len(uniqueName) == 0 {
+				uniqueName = fieldName
+			}
+
+			item, ok := r[uniqueName]
+			if !ok {
+				item = &TuniqueConstraints{
+					PrimaryOrUniqueName: uniqueName,
+					Fields:              make(map[string]protoreflect.FieldDescriptor),
+				}
+				r[uniqueName] = item
+			}
+			item.Fields[fieldName] = field
+
 		}
 	}
 
-	return result
+	return r
 }
