@@ -49,12 +49,25 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 	fnCrudPermission := this.fnCrudPermissionMap[CrudMsg.TableName]
 
 	if fnCrudPermission == nil && CrudMsg.Code != protodb.CrudReqCode_SELECTONE {
-		return nil, fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName)
+		errInfo := fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName)
+		connecterr := connect.NewError(
+			connect.CodePermissionDenied,
+			errInfo,
+		)
+		connecterr.Meta().Set("Err-Info", errInfo.Error())
+
+		return nil, connecterr
 	}
 
 	respCrud, err := crud.Crud(ctx, meta, CrudMsg, this.FnGetDb, fnCrudPermission)
 	if err != nil {
-		return nil, err
+		connecterr := connect.NewError(
+			connect.CodeUnknown,
+			err,
+		)
+		connecterr.Meta().Set("Err-Info", err.Error())
+
+		return nil, connecterr
 	}
 
 	resp = &connect.Response[protodb.CrudResp]{
