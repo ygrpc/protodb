@@ -74,6 +74,7 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 			MsgFormat:   0,
 			ResponseEnd: true,
 		}
+		ss.ResponseHeader().Set("Err-Info", err.Error())
 		return ss.Send(resp)
 	}
 
@@ -85,10 +86,22 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 		return sendErr(fmt.Errorf("no permission check function for table %s", TableQueryReq.TableName))
 	}
 
-	return crud.TableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, ss.Send)
+	fnSend := func(resp *protodb.QueryResp) error {
+		if len(resp.ErrInfo) > 0 {
+			ss.ResponseHeader().Set("Err-Info", resp.ErrInfo)
+		}
+		return ss.Send(resp)
+	}
+	return crud.TableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, fnSend)
 }
 
 func (this *TconnectrpcProtoDbSrvHandlerImpl) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
-	return crud.Query(ctx, req.Header(), req.Msg, this.FnGetDb, ss.Send)
+	fnSend := func(resp *protodb.QueryResp) error {
+		if len(resp.ErrInfo) > 0 {
+			ss.ResponseHeader().Set("Err-Info", resp.ErrInfo)
+		}
+		return ss.Send(resp)
+	}
+	return crud.Query(ctx, req.Header(), req.Msg, this.FnGetDb, fnSend)
 
 }
