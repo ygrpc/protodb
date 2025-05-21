@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 
 	"connectrpc.com/connect"
 	"github.com/ygrpc/protodb"
@@ -54,7 +55,7 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 			connect.CodePermissionDenied,
 			errInfo,
 		)
-		connecterr.Meta().Set("Err-Info", errInfo.Error())
+		connecterr.Meta().Set("Ygrpc-Err", errInfo.Error())
 
 		return nil, connecterr
 	}
@@ -65,7 +66,7 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 			connect.CodeUnknown,
 			err,
 		)
-		connecterr.Meta().Set("Err-Info", err.Error())
+		connecterr.Meta().Set("Ygrpc-Err", err.Error())
 
 		return nil, connecterr
 	}
@@ -79,6 +80,18 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 }
 
 func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, req *connect.Request[protodb.TableQueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
+	meta := req.Header()
+
+	ygrpcErrHeaderStr := meta.Get(YgrpcErrHeader)
+	ygrpcErrHeader := len(ygrpcErrHeaderStr) > 0
+	ygrpcerrmaxlen := 0
+	if ygrpcErrHeader {
+		ygrpcerrmax := meta.Get(YgrpcErrMax)
+		if len(ygrpcerrmax) > 0 {
+			ygrpcerrmaxlen, _ = strconv.Atoi(ygrpcerrmax)
+		}
+	}
+
 	sendErr := func(err error) error {
 		resp := &protodb.QueryResp{
 			ResponseNo:  0,
@@ -87,11 +100,19 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 			MsgFormat:   0,
 			ResponseEnd: true,
 		}
-		ss.ResponseHeader().Set("Err-Info", err.Error())
+		if ygrpcErrHeader {
+			errStr := err.Error()
+			if ygrpcerrmaxlen > 0 {
+				if len(errStr) > ygrpcerrmaxlen {
+					errStr = errStr[:ygrpcerrmaxlen]
+				}
+			}
+			ss.ResponseHeader().Set(YgrpcErr, errStr)
+		}
+
 		return ss.Send(resp)
 	}
 
-	meta := req.Header()
 	TableQueryReq := req.Msg
 
 	permissionFn, ok := this.fnTableQueryPermissionMap[TableQueryReq.TableName]
@@ -100,8 +121,14 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 	}
 
 	fnSend := func(resp *protodb.QueryResp) error {
-		if len(resp.ErrInfo) > 0 {
-			ss.ResponseHeader().Set("Err-Info", resp.ErrInfo)
+		if len(resp.ErrInfo) > 0 && ygrpcErrHeader {
+			errStr := resp.ErrInfo
+			if ygrpcerrmaxlen > 0 {
+				if len(errStr) > ygrpcerrmaxlen {
+					errStr = errStr[:ygrpcerrmaxlen]
+				}
+			}
+			ss.ResponseHeader().Set(YgrpcErr, errStr)
 		}
 		return ss.Send(resp)
 	}
@@ -109,9 +136,26 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 }
 
 func (this *TconnectrpcProtoDbSrvHandlerImpl) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
+	meta := req.Header()
+
+	ygrpcErrHeaderStr := meta.Get(YgrpcErrHeader)
+	ygrpcErrHeader := len(ygrpcErrHeaderStr) > 0
+	ygrpcerrmaxlen := 0
+	if ygrpcErrHeader {
+		ygrpcerrmax := meta.Get(YgrpcErrMax)
+		if len(ygrpcerrmax) > 0 {
+			ygrpcerrmaxlen, _ = strconv.Atoi(ygrpcerrmax)
+		}
+	}
 	fnSend := func(resp *protodb.QueryResp) error {
-		if len(resp.ErrInfo) > 0 {
-			ss.ResponseHeader().Set("Err-Info", resp.ErrInfo)
+		if len(resp.ErrInfo) > 0 && ygrpcErrHeader {
+			errStr := resp.ErrInfo
+			if ygrpcerrmaxlen > 0 {
+				if len(errStr) > ygrpcerrmaxlen {
+					errStr = errStr[:ygrpcerrmaxlen]
+				}
+			}
+			ss.ResponseHeader().Set(YgrpcErr, errStr)
 		}
 		return ss.Send(resp)
 	}
