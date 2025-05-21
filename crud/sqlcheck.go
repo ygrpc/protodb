@@ -34,23 +34,34 @@ func checkSQLColumnsIsNoInjectionStrict(columnName string) error {
 	if columnName == "*" {
 		return nil
 	}
+
+	allDigitCount := 0
 	for _, c := range columnName {
 		if unicode.IsLetter(c) {
 			continue
 		} else if c == '_' {
 			continue
 		} else if unicode.IsDigit(c) {
+			allDigitCount++
 			continue
 		} else if c == '(' {
+			allDigitCount++
 			continue
 		} else if c == ')' {
+			allDigitCount++
 			continue
 		} else if c == '.' {
+			allDigitCount++
 			continue
 		}
 
 		return fmt.Errorf("column %s contains invalid character %c", columnName, c)
 	}
+
+	if allDigitCount == len(columnName) {
+		return fmt.Errorf("column %s contains only digits", columnName)
+	}
+
 	return nil
 }
 
