@@ -1,0 +1,83 @@
+syntax = "proto3";
+
+package rpc;
+
+option go_package = "bfmap/rpc";
+
+import "db.proto";
+
+// empty msg
+message Empty {}
+
+
+// some response code in common means
+enum CommonRespCode {
+  Success = 0;
+  InvalidParam = 1;
+  InvalidSessionId = 2;
+  UnmarshalError = 3;
+  DataBaseError = 4;
+  ServerError = 5;
+  PermissionDenied = 6;
+  NotFound = 7;
+  AlreadyExist = 8;
+  Unknown = 9;
+}
+
+// common msg
+message Common {
+  int32 Code = 1;
+  string Reason = 2;
+  string Msg = 3;
+  bytes Body = 4;
+}
+
+
+enum LoginMethod {
+  Password = 0;
+  SessionId = 1;
+}
+
+message LoginReq {
+  string Name = 1;
+  // 0: password login，1: session id login
+  LoginMethod LoginMethod = 2;
+  // value is base64(sha256(time_str+base64(sha256(Name+Password))))
+  string PasswordHash = 3;
+  // format in utc time: yyyy-mm-dd hh:mm:ss
+  string TimeStr = 4;
+  string SessionId = 5;
+}
+
+
+message CreateUserReq {
+  dbproto.DbUser User = 1;
+  dbproto.DbUserPrivilege UserPrivilege = 2;
+}
+
+message SetProviderTokenReq {
+  // 1:create
+  // 2:update,if UpdateFields is empty, all the fields will be updated
+  // 4:delete, mark old one as "delete"
+  // 8:force delete,delete in db
+  // Common.Body is DbMapProviderToken
+  int32 Code = 1;
+  dbproto.DbMapProviderToken ProviderToken = 2;
+  repeated string UpdateFields = 3;
+}
+
+// bfmap rpc service
+// need add "Session-Id" in header
+service bfmap {
+
+  rpc CreateUser(CreateUserReq) returns (Common);
+  // 1:create
+  // 2:update
+  // 3:rotate token,create new one and mark old one status as "delete"
+  // only for token, new one return in Common.Body
+  // 4:delete, mark old one as "delete"
+  // Common.Body is DbMapProviderToken
+  // in resp,Common.Code: 0: success, !0: fail, see CommonRespCode
+  rpc SetProviderToken(SetProviderTokenReq) returns (Common);
+
+}

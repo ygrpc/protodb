@@ -1,0 +1,341 @@
+syntax = "proto3";
+
+package dbproto;
+
+import "protodb.proto";
+
+option go_package = "bfmap/dbproto";
+
+// DbOrg
+message DbOrg {
+  option (protodb.pdbm).SQLAppendsEnd = "CREATE INDEX IF NOT EXISTS idx_DbOrg_OwnerRid ON DbOrg (OwnerRid);";
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  // name
+  string Name = 2;
+  // create time
+  int64 CreateTime = 3 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // note
+  string Note = 4;
+  // setting
+  string Setting = 5 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : " {}"} ];
+  // owner: user rid
+  string OwnerRid = 6 [ (protodb.pdb) = {DbType : UUID}];
+}
+
+message DbUser {
+  option (protodb.pdbm).SQLAppendsEnd = "CREATE INDEX IF NOT EXISTS idx_DbUser_Creater ON DbUser (Creater);";
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  // org
+  string Org = 2 [
+    (protodb.pdb) = {DbType : UUID, Reference : "DbOrg(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"}
+  ];
+  // name
+  string Name = 3 [ (protodb.pdb) = {Unique: true, NotNull: true} ];
+  // nickname
+  string Nickname = 4;
+  // email
+  string Email = 5;
+  // phone
+  string Phone = 6;
+  // password, base64(sha256(Name+Password))
+  string Password = 7;
+  // create time
+  int64 CreateTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // creater uuid
+  string Creater = 9 [ (protodb.pdb) = {DbType : UUID}];
+  // note
+  string Note = 10;
+  // setting
+  string Setting = 11 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : "{}"} ];
+  // disabled
+  bool Disabled = 12 [ (protodb.pdb) = {DefaultValue : "false"} ];
+}
+
+message DbUserPrivilege {
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  string UserRid = 2 [
+    (protodb.pdb) = {DbType : UUID, Reference : "DbUser(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"}
+  ];
+  int64 UpdateTime = 3 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  bool CanModifyOtherUser = 4 [ (protodb.pdb) = { DefaultValue: "false" }];
+}
+
+// user login session
+message DbUserSession {
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  string UserRid = 2 [
+    (protodb.pdb) = {DbType : UUID, Reference : "DbUser(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"}
+  ];
+  string SessionId = 3 [ (protodb.pdb) = {Unique : true, DbType : UUID} ];
+  int64 UpdateTime = 4 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  int64 ExpireTime = 5 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+}
+
+// user project
+message DbProject {
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  // project user rid
+  string UserRid = 2 [
+    (protodb.pdb) = {DbType : UUID, Reference : "DbUser(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"}
+  ];
+  // name
+  string Name = 3;
+  // create time
+  int64 CreateTime = 4 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // note
+  string Note = 5;
+  // setting
+  string Setting = 6 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : " {}"} ];
+  // status, 1:active 4:disable 8:deleted
+  int32 Status = 7;
+  // for clean usage
+  int64 DeleteTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+}
+
+enum MapProviderEnum {
+  ProviderGoogle = 0;
+  ProviderTianditu = 1;
+  ProviderOSM = 2;
+  ProviderGoogleLocalDirectory = 3;
+  ProviderTiandituLocalDirectory = 4;
+  ProviderOSMLocalDirectory = 5;
+}
+
+// TAvailableMapProvider
+message TAvailableMapProvider {
+  option (protodb.pdbm).NotDB = true;
+  // 在http请求参数`provider`为空时使用的provider
+  MapProviderEnum DefaultRoadmap = 1;
+  MapProviderEnum DefaultSatellite = 2;
+  MapProviderEnum DefaultHybrid = 3;
+  // google
+  bool Google = 4;
+  // tianditu
+  bool Tianditu = 5;
+  // osm
+  bool OSM = 6;
+}
+
+message SysNames{
+  option (protodb.pdbm).NotDB = true;
+  repeated string Names = 1;
+}
+
+// project token
+message DbProjectToken {
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  // project rid
+  string ProjectRid = 2 [ (protodb.pdb) =
+            {DbType : UUID, Reference : "DbProject(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"} ];
+  string Name = 3;
+  // token
+  string Token = 4 [ (protodb.pdb) = {DbType : UUID, Unique : true} ];
+  // create time
+  int64 CreateTime = 5 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // note
+  string Note = 6;
+  // setting
+  string Setting = 7 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : " {}"} ];
+  // expire time unix utc, 0:forever
+  int64 ExpireTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // status, 1:active 4:disable, 8:deleted
+  int32 Status = 9;
+  // available map provider jsonb of TAvailableMapProvider
+  string AvailableMapProvider = 10 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : " {}"} ];
+  // for clean usage
+  int64 DeleteTime = 11 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // sys name, specify which system can access this token
+  SysNames SysName = 12;
+}
+
+// project quotas
+message DbProjectQuotas {
+  // rid uuidv7 same as DbProject rid
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID, Reference : "DbProject(Rid)",SQLAppend: "ON DELETE CASCADE"} ];
+  // quotas type 1:per minute 2:per hour 3:per day 4:per month
+  int32 QuotasType = 2 [ (protodb.pdb) = { DefaultValue: "4" }];
+  // quotas limit 0=unlimited
+  int32 QuotasLimit = 3 [ (protodb.pdb) = { DefaultValue: "0" }];
+    // count start time
+  int64 CountStartTime = 4 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // current quotas
+  int32 CurrentUsedQuotas = 5 [ (protodb.pdb) = { DefaultValue: "0" }];
+}
+
+// map project token usage statistics
+message DbProjectTokenUsage {
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  // project rid
+  string ProjectRid = 2 [ (protodb.pdb) =
+            {DbType : UUID, Reference : "DbProject(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"} ];
+  // token
+  string Token = 3;
+  // start time
+  int64 StartTime = 4 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // end time
+  int64 EndTime = 5 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // usage count, request success times
+  int32 UsageCount = 6;
+}
+
+enum GoogleMapApiEnum {
+  GoogleMapApiStatic = 0;
+  GoogleMapApiTile = 1;
+  GoogleMapApiAll = 2;
+}
+
+// map provider token
+message DbMapProviderToken {
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  MapProviderEnum Provider = 2;
+  // user rid
+  string UserRid = 3 [
+    (protodb.pdb) = {DbType : UUID, Reference : "DbUser(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"}
+  ];
+  string Name = 4;
+  // token
+  // for osm, it pass token in url as query string "tk=xxx"
+  string Token = 5;
+  // zoom level range, 0:no limit
+  int32 MinZoom = 6 [ (protodb.pdb) = { NotNull: true, DefaultValue: "0" }];
+  int32 MaxZoom = 7 [ (protodb.pdb) = { NotNull: true, DefaultValue: "0" }];
+  // create time
+  int64 CreateTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // note
+  string Note = 9;
+  // expire time unix utc,0:forever
+  int64 ExpireTime = 10 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // setting
+  string Setting = 11 [ (protodb.pdb) = {DbType : JSONB, DefaultValue : " {}"} ];
+  // quotas type  3:per day 4:per month
+  int32 QuotasType = 12 [ (protodb.pdb) = { DefaultValue: "4" }];
+  // quotas  0=unlimited
+  int32 QuotasLimit = 13 [ (protodb.pdb) = { DefaultValue: "0" }];
+  // status, 1:active 4:disable,8:deleted
+  int32 Status = 14;
+  // use which google map api to get tile
+  GoogleMapApiEnum GoogleMapApi = 15 [ (protodb.pdb) = { DefaultValue: "0" }];
+  int32 Priority = 16 [ (protodb.pdb) = { DefaultValue: "1" }];
+  // for clean usage
+  int64 DeleteTime = 17 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // custom base url in request
+  // for google map static api, it replace the default base url "https://maps.googleapis.com"
+  // for google map tile api, it replace the default base url "https://tile.googleapis.com"
+  // for tianditu map api, it replace the default base url "https://t0.tianditu.com"
+  // for osm map api, it replace the default base url "https://tile.openstreetmap.org"
+  // for ProviderGoogleLocalDirectory, this is the local directory path, the file path is like "satellite/{z}/{x}/{y}.jpg"
+  // or "hybrid/{z}/{x}/{y}.jpg" or "roadmap/{z}/{x}/{y}.png"
+  // ProviderTiandituLocalDirectory and ProviderOSMLocalDirectory are the same as ProviderGoogleLocalDirectory
+  string BaseUrl = 18 [ (protodb.pdb) = {DefaultValue: ""} ];
+  bool IsUseProxy = 19 [ (protodb.pdb) = {DefaultValue: "false"} ];
+  // for local directory, the language of tiles in the directory, only work for ProviderGoogleLocalDirectory,
+  // ProviderOSMLocalDirectory is not support multi language, ProviderTiandituLocalDirectory only support zh-CN
+  string Language = 20 [ (protodb.pdb) = {DefaultValue: ""} ];
+}
+
+// map provider used quotas
+message DbMapProviderUsedQuotas {
+  // rid uuidv7 same as DbMapProviderToken rid
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID, Reference : "DbMapProviderToken(Rid)",SQLAppend: "ON DELETE CASCADE"} ];
+  // count start time
+  int64 CountStartTime = 2 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // current quotas
+  int32 UsedQuotas = 3;
+}
+
+// map provider usage statistics
+message DbMapProviderTokenUsage {
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID}  ];
+  // provider rid
+  string ProviderRid = 2 [ (protodb.pdb) =
+            {DbType : UUID, Reference : "DbMapProviderToken(Rid)", ZeroAsNull : true,SQLAppend: "ON DELETE CASCADE"} ];
+  int64 StartTime = 3 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // rotate time
+  int64 RotateTime = 4 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // usage count, request success times
+  int32 UsageCount = 5;
+}
+
+// map cache roadmap index
+message DbMapCacheRoadmapIndex {
+  // condition index for delete
+  option (protodb.pdbm).SQLAppendsEnd = "CREATE INDEX IF NOT EXISTS idx_DbMapCacheRoadmapIndex_deleteExpr_status_accesstime ON DbMapCacheRoadmapIndex ( (CASE WHEN Status = 8 THEN 1 ELSE 2 END), AccessTime );";
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  MapProviderEnum Provider = 2 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // language
+  string Language = 3 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // tile x
+  int32 TileX = 4 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // tile y
+  int32 TileY = 5 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // tile z
+  int32 TileZ = 6 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // cache time
+  int64 CacheTime = 7 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  int64 AccessTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // tile image type 1:png 2:jpg
+  int32 TileImageFormat = 9 [ (protodb.pdb) = {Unique: true, UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // 128 bit xxHash hash, base64=key in kvstore
+  string TileHash = 10;
+  int32 Gcj02 = 11 [ (protodb.pdb) = {Unique: true, DefaultValue: "0", UniqueName:"MapCacheRoadmapIndexGroup"} ];
+  // status, 1:active 8:deleted
+  int32 Status = 12 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "1"} ];
+}
+
+// map cache satellite index
+message DbMapCacheSatelliteIndex {
+  option (protodb.pdbm).SQLAppendsEnd = "CREATE INDEX IF NOT EXISTS idx_DbMapCacheSatelliteIndex_deleteExpr_status_accesstime ON DbMapCacheSatelliteIndex ( (CASE WHEN Status = 8 THEN 1 ELSE 2 END), AccessTime );";
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  MapProviderEnum Provider = 2 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // tile x
+  int32 TileX = 3 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // tile y
+  int32 TileY = 4 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // tile z
+  int32 TileZ = 5 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // cache time
+  int64 CacheTime = 6 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  int64 AccessTime = 7 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // tile image type 1:png 2:jpg
+  int32 TileImageFormat = 8 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // 128 bit xxHash hash, base64=key in kvstore
+  string TileHash = 9;
+  int32 Gcj02 = 10 [ (protodb.pdb) = {Unique: true, DefaultValue: "0",  UniqueName:"DbMapCacheSatelliteIndexGroup"} ];
+  // status, 1:active 8:deleted
+  int32 Status = 11 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "1"} ];
+}
+
+// map cache hybrid index
+message DbMapCacheHybridIndex {
+  option (protodb.pdbm).SQLAppendsEnd = "CREATE INDEX IF NOT EXISTS idx_DbMapCacheHybridIndex_deleteExpr_status_accesstime ON DbMapCacheHybridIndex ( (CASE WHEN Status = 8 THEN 1 ELSE 2 END), AccessTime );";
+  // rid uuidv7
+  string Rid = 1 [ (protodb.pdb) = {Primary : true, DbType : UUID} ];
+  MapProviderEnum Provider = 2 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // language
+  string Language = 3 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // tile x
+  int32 TileX = 4 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // tile y
+  int32 TileY = 5 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // tile z
+  int32 TileZ = 6 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // cache time
+  int64 CacheTime = 7 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  int64 AccessTime = 8 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "0"} ];
+  // tile image type 1:png 2:jpg
+  int32 TileImageFormat = 9 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // 128 bit xxHash hash, base64=key in kvstore
+  string TileHash = 10;
+  int32 Gcj02 = 11 [ (protodb.pdb) = {Unique: true, UniqueName:"DbMapCacheHybridIndexGroup"} ];
+  // status, 1:active 8:deleted
+  int32 Status = 12 [ (protodb.pdb) = {DbType : TIMESTAMP, DefaultValue: "1"} ];
+}
