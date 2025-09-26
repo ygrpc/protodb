@@ -261,7 +261,19 @@ func dbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32
 		return oldMsg, newMsg, err
 	}
 
-	sqlStr, sqlVals, err := dbBuildSqlUpdateOldAndNew(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
+	fnbuildsql := dbBuildSqlUpdateOldAndNew
+	if dbdialect == sqldb.Postgres {
+		pgversion, _ := GetPgVersion(db)
+		if pgversion.Major >= 18 {
+
+			fnbuildsql = dbBuildSqlUpdateOldAndNewNative
+		}
+	}
+	if dbdialect == sqldb.Oracle {
+		fnbuildsql = dbBuildSqlUpdateOldAndNewNative
+	}
+
+	sqlStr, sqlVals, err := fnbuildsql(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -438,5 +450,122 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 
 	sqlStr = sb.String()
 
+	return sqlStr, sqlVals, nil
+}
+
+// dbBuildSqlUpdateOldAndNewNative build sql update statement and return old and new row
+func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+	msgDesc protoreflect.MessageDescriptor,
+	msgFieldDescs protoreflect.FieldDescriptors,
+	dbdialect sqldb.TDBDialect,
+) (sqlStr string, sqlVals []interface{}, err error) {
+	// Build SQL like: UPDATE <table> SET ... WHERE pk=? RETURNING OLD.*,NEW.*;
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+
+	placeholder := dbdialect.Placeholder()
+	primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
+
+	if len(primaryKeyFieldNames) == 0 {
+		return "", nil, fmt.Errorf("no primary key field")
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString(protosql.SQL_UPDATE)
+	sb.WriteString(dbtableName)
+	sb.WriteString(protosql.SQL_SET)
+
+	valFieldNames := make([]string, 0)
+
+	// Collect updatable fields and values
+	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
+		field := msgFieldDescs.Get(fi)
+		fieldName := string(field.Name())
+
+		if _, ok := primaryKeyFieldNames[fieldName]; ok {
+			continue
+		}
+
+		fieldPdb, _ := pdbutil.GetPDB(field)
+		if !fieldPdb.NeedInUpdate() {
+			continue
+		}
+
+		if msgLastFieldNo > 0 && int32(field.Number()) > msgLastFieldNo {
+			continue
+		}
+
+		valFieldNames = append(valFieldNames, fieldName)
+
+		val, err := pdbutil.GetField(msgobj, fieldName)
+		if err != nil {
+			return "", nil, fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
+		}
+
+		isValZero := pdbutil.IsZeroValue(val)
+		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
+			val = pdbutil.NullValue
+		} else if isValZero && hasDefaultValue {
+			val = fieldPdb.DefaultValue2SQLArgs()
+		}
+
+		sqlVals = append(sqlVals, val)
+	}
+
+	if len(valFieldNames) == 0 {
+		return "", nil, fmt.Errorf("no field need update")
+	}
+
+	// Write SET clause placeholders
+	firstPlaceholder := true
+	sqlParaNo := 1
+	for _, fieldName := range valFieldNames {
+		if firstPlaceholder {
+			firstPlaceholder = false
+		} else {
+			sb.WriteString(protosql.SQL_COMMA)
+		}
+		sb.WriteString(fieldName)
+		sb.WriteString(protosql.SQL_EQUEAL)
+		if placeholder == protosql.SQL_QUESTION {
+			sb.WriteString(string(protosql.SQL_QUESTION))
+		} else {
+			sb.WriteString(string(protosql.SQL_DOLLAR))
+			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sqlParaNo++
+		}
+	}
+
+	// WHERE by primary keys
+	sb.WriteString(protosql.SQL_WHERE)
+	firstPlaceholder = true
+	for fieldName := range primaryKeyFieldNames {
+		if firstPlaceholder {
+			firstPlaceholder = false
+		} else {
+			sb.WriteString(protosql.SQL_AND)
+		}
+		sb.WriteString(fieldName)
+		sb.WriteString(protosql.SQL_EQUEAL)
+		if placeholder == protosql.SQL_QUESTION {
+			sb.WriteString(string(protosql.SQL_QUESTION))
+		} else {
+			sb.WriteString(string(protosql.SQL_DOLLAR))
+			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sqlParaNo++
+		}
+
+		// Append PK values after SET values
+		val, err := pdbutil.GetField(msgobj, fieldName)
+		if err != nil {
+			return "", nil, err
+		}
+		sqlVals = append(sqlVals, val)
+	}
+
+	// Native returning old and new
+	sb.WriteString(" RETURNING OLD.*,NEW.* ;")
+
+	sqlStr = sb.String()
 	return sqlStr, sqlVals, nil
 }

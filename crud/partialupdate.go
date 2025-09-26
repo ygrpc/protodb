@@ -3,8 +3,9 @@ package crud
 import (
 	"database/sql"
 	"fmt"
-	"google.golang.org/protobuf/encoding/protojson"
 	"strings"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
@@ -126,7 +127,19 @@ func dbUpdatePartialReturnOldAndNew(db *sql.DB, msg proto.Message, updateFields 
 		return oldMsg, newMsg, err
 	}
 
-	sqlStr, sqlVals, err := dbBuildSqlUpdatePartialOldAndNew(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
+	fnbuildsql := dbBuildSqlUpdatePartialOldAndNew
+	if dbdialect == sqldb.Postgres {
+		pgversion, _ := GetPgVersion(db)
+		if pgversion.Major >= 18 {
+
+			fnbuildsql = dbBuildSqlUpdatePartialOldAndNewNative
+		}
+	}
+	if dbdialect == sqldb.Oracle {
+		fnbuildsql = dbBuildSqlUpdatePartialOldAndNewNative
+	}
+
+	sqlStr, sqlVals, err := fnbuildsql(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -437,6 +450,123 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 	}
 
 	sb.WriteString(" RETURNING old.*,new.* ;")
+
+	return sb.String(), sqlVals, nil
+}
+
+// dbBuildSqlUpdatePartialOldAndNew build sql update statement and return old and new row
+func dbBuildSqlUpdatePartialOldAndNewNative(msgobj proto.Message, updateFields []string, dbschema string, tableName string,
+	msgDesc protoreflect.MessageDescriptor,
+	msgFieldDescs protoreflect.FieldDescriptors,
+	dbdialect sqldb.TDBDialect) (sqlStr string, sqlVals []interface{}, err error) {
+	// Build SQL like: UPDATE <table> new SET ... WHERE new.pk=? RETURNING OLD.*,NEW.*;
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
+
+	placeholder := dbdialect.Placeholder()
+	primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
+
+	if len(primaryKeyFieldNames) == 0 {
+		return "", nil, fmt.Errorf("no primary key field")
+	}
+
+	sb := strings.Builder{}
+	sb.WriteString(protosql.SQL_UPDATE)
+	sb.WriteString(dbtableName)
+	sb.WriteString(protosql.SQL_SET)
+
+	valFieldNames := make([]string, 0)
+	updateFieldsMap := make(map[string]bool)
+	for _, fieldName := range updateFields {
+		updateFieldsMap[fieldName] = true
+	}
+
+	// Collect updatable fields and append their values first
+	for fi := 0; fi < msgFieldDescs.Len(); fi++ {
+		field := msgFieldDescs.Get(fi)
+		fieldName := string(field.Name())
+
+		if _, ok := updateFieldsMap[fieldName]; !ok {
+			continue
+		}
+		if _, ok := primaryKeyFieldNames[fieldName]; ok {
+			continue
+		}
+
+		fieldPdb, _ := pdbutil.GetPDB(field)
+		if !fieldPdb.NeedInUpdate() {
+			continue
+		}
+
+		valFieldNames = append(valFieldNames, fieldName)
+
+		val, err := pdbutil.GetField(msgobj, fieldName)
+		if err != nil {
+			return "", nil, fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
+		}
+
+		isValZero := pdbutil.IsZeroValue(val)
+		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
+			val = pdbutil.NullValue
+		} else if isValZero && hasDefaultValue {
+			val = fieldPdb.DefaultValue2SQLArgs()
+		}
+
+		sqlVals = append(sqlVals, val)
+	}
+
+	if len(valFieldNames) == 0 {
+		return "", nil, fmt.Errorf("no field need update")
+	}
+
+	// Write SET clause
+	firstPlaceholder := true
+	sqlParaNo := 1
+	for _, fieldName := range valFieldNames {
+		if firstPlaceholder {
+			firstPlaceholder = false
+		} else {
+			sb.WriteString(protosql.SQL_COMMA)
+		}
+
+		sb.WriteString(fieldName)
+		sb.WriteString(protosql.SQL_EQUEAL)
+		if placeholder == protosql.SQL_QUESTION {
+			sb.WriteString(string(protosql.SQL_QUESTION))
+		} else {
+			sb.WriteString(string(protosql.SQL_DOLLAR))
+			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sqlParaNo++
+		}
+	}
+
+	// WHERE clause by primary keys; append PK values after SET values
+	sb.WriteString(protosql.SQL_WHERE)
+	firstPlaceholder = true
+	for fieldName := range primaryKeyFieldNames {
+		if firstPlaceholder {
+			firstPlaceholder = false
+		} else {
+			sb.WriteString(protosql.SQL_AND)
+		}
+		sb.WriteString(fieldName)
+		sb.WriteString(protosql.SQL_EQUEAL)
+		if placeholder == protosql.SQL_QUESTION {
+			sb.WriteString(string(protosql.SQL_QUESTION))
+		} else {
+			sb.WriteString(string(protosql.SQL_DOLLAR))
+			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sqlParaNo++
+		}
+
+		val, err := pdbutil.GetField(msgobj, fieldName)
+		if err != nil {
+			return "", nil, err
+		}
+		sqlVals = append(sqlVals, val)
+	}
+
+	sb.WriteString(" RETURNING OLD.*,NEW.* ;")
 
 	return sb.String(), sqlVals, nil
 }
