@@ -148,6 +148,56 @@ func Crud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnGetDb T
 			}
 			return resp, nil
 		}
+	case protodb.CrudReqCode_PARTIALUPDATE:
+		switch req.ResultType {
+		case protodb.CrudResultType_DMLResult:
+			dmlResult, err := DbUpdatePartial(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+			resp = dmlResult
+
+			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+
+			return resp, nil
+		case protodb.CrudResultType_NewMsg:
+			newMsg, err := DbUpdatePartialReturnNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+			NewMsgBytes, err := proto.Marshal(newMsg)
+			if err != nil {
+				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+			}
+			resp = &protodb.CrudResp{
+				RowsAffected: 1,
+				NewMsgBytes:  NewMsgBytes,
+			}
+
+			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			return resp, nil
+		case protodb.CrudResultType_OldMsgAndNewMsg:
+			oldMsg, newMsg, err := DbUpdatePartialReturnOldAndNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+			OldMsgBytes, err := proto.Marshal(oldMsg)
+			if err != nil {
+				return nil, fmt.Errorf("marshal old msg %s err: %w", req.TableName, err)
+			}
+			NewMsgBytes, err := proto.Marshal(newMsg)
+			if err != nil {
+				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+			}
+			resp = &protodb.CrudResp{
+				RowsAffected: 1,
+				OldMsgBytes:  OldMsgBytes,
+				NewMsgBytes:  NewMsgBytes,
+			}
+
+			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			return resp, nil
+		}
 	case protodb.CrudReqCode_DELETE:
 		switch req.ResultType {
 		case protodb.CrudResultType_DMLResult:
