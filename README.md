@@ -9,7 +9,7 @@
 ## 🔥 核心特性
 
 * **Proto 驱动开发**: 直接在 `.proto` 中定义表结构、索引、约束和默认值。
-* **全自动 CRUD**: 自动生成 Insert, Update, Delete, SelectOne 等常用操作代码，告别手写 SQL。
+* **全自动 CRUD**: 自动生成 Insert, Update, PartialUpdate, Delete, SelectOne 等常用操作代码，告别手写 SQL。
 * **高级查询支持**: 提供基于 RPC 的流式查询接口 (`TableQuery`, `Query`)，支持灵活的过滤和分页。
 * **多数据库支持**: 兼容 **PostgreSQL**, **MySQL**, **SQLite**。
 * **ConnectRPC 集成**: 基于现代的 `connect-go` 框架，提供类型安全、高性能的 HTTP/2 RPC 服务。
@@ -23,6 +23,8 @@
 ### 1. 环境准备
 
 确保您已安装 Go 和 Protocol Buffer 编译器 (`protoc`)。
+
+数据库驱动请按需在您的应用侧引入（例如 Postgres 可用 `github.com/lib/pq` 或 `github.com/jackc/pgx/v5/stdlib`；MySQL 可用 `github.com/go-sql-driver/mysql`；SQLite 可用 `github.com/mattn/go-sqlite3` 或 `modernc.org/sqlite`）。
 
 ```bash
 # 安装 Go 插件
@@ -81,11 +83,11 @@ protoc --proto_path=. --go_out=paths=source_relative:. \
 package main
 
 import (
-    "context"
     "database/sql"
     "net/http"
     "google.golang.org/protobuf/proto"
     "github.com/ygrpc/protodb"
+    "github.com/ygrpc/protodb/msgstore"
     "github.com/ygrpc/protodb/service"
     "github.com/ygrpc/protodb/crud"
     _ "github.com/lib/pq" // Postgres 驱动
@@ -94,6 +96,15 @@ import (
 func main() {
     // 1. 初始化数据库
     db, _ := sql.Open("postgres", "...")
+
+    // 1.1 注册 proto message（TableName -> proto.Message）
+    // Crud/TableQuery/SelectOne 会通过 TableName 从 msgstore 里取消息类型
+    msgstore.RegisterMsg("User", func(new bool) proto.Message {
+        if new {
+            return &User{}
+        }
+        return &User{}
+    })
 
     // 2. 定义获取数据库连接的函数
     fnGetDb := func(meta http.Header, schema, table string, writable bool) (*sql.DB, error) {
@@ -120,7 +131,8 @@ func main() {
     )
     
     mux := http.NewServeMux()
-    mux.Handle(protodb.NewProtoDbSrvHandler(srv))
+    path, handler := protodb.NewProtoDbSrvHandler(srv)
+    mux.Handle(path, handler)
     http.ListenAndServe(":8080", mux)
 }
 ```
@@ -139,8 +151,19 @@ func main() {
 | `NotDB` | `bool` | 设为 `true` 则不生成该表。 |
 | `SQLPrepend` | `[]string` | 在 `CREATE TABLE` **之前** 执行的 SQL。 |
 | `SQLAppend` | `[]string` | 在字段定义结束符 `)` **之前** 插入的 SQL（常用于定义联合主键等）。 |
+| `SQLAppendsAfter` | `[]string` | 在 `)` **之后**、`;` **之前** 追加的 SQL。 |
 | `SQLAppendsEnd` | `[]string` | 在 `CREATE TABLE` 语句结束符 `;` **之后** 执行的 SQL（常用于创建索引）。 |
 | `MsgList` | `int32` | 控制 `{Msg}List` 消息生成策略 (0:自动, 1:强制生成, 4:不生成)。 |
+| `SQLMigrate` | `[]string` | 预留：用于迁移的 SQL（当前仓库主要用于建表 SQL 生成，迁移需自行组织调用）。 |
+
+### 文件选项 (File Options)
+
+使用 `option (protodb.pdbf) = { ... };` 设置。
+
+| 选项名 | 类型 | 说明 |
+| :--- | :--- | :--- |
+| `NameStyle` | `string` | 名称风格：默认空/`"go"` 为 Go 风格（如 `UserName`），`"snake"` 为下划线（如 `user_name`）。 |
+| `Comment` | `[]string` | 文件级注释（用于说明/生成 SQL 注释等场景）。 |
 
 ### 字段选项 (Field Options)
 
@@ -148,17 +171,22 @@ func main() {
 
 | 选项名 | 类型 | 说明 |
 | :--- | :--- | :--- |
+| `NotDB` | `bool` | 设为 `true` 则不生成该字段列。 |
 | `Primary` | `bool` | 设为主键。 |
 | `Unique` | `bool` | 设为唯一索引。 |
 | `UniqueName` | `string` | 联合唯一索引的组名。相同组名的字段会组成一个联合唯一索引。 |
 | `NotNull` | `bool` | 添加 `NOT NULL` 约束。 |
 | `DefaultValue` | `string` | 数据库字段的默认值 (SQL 语法)。 |
 | `Reference` | `string` | 外键约束，格式：`"other_table(column)"`。 |
+| `SQLAppend` | `[]string` | 在字段定义的 `,` **之前**追加 SQL 片段。 |
+| `SQLAppendsEnd` | `[]string` | 在字段定义的 `,` **之后**追加 SQL 片段。 |
 | `NoUpdate` | `bool` | 更新记录时忽略此字段 (例如 `create_time`)。 |
 | `NoInsert` | `bool` | 插入记录时忽略此字段 (例如使用数据库自增或默认值)。 |
 | `SerialType` | `int` | 自增类型映射: `2`=SmallSerial, `4`=Serial, `8`=BigSerial。 |
-| `DbType` | `Enum` | 强制指定数据库类型 (`JSONB`, `UUID`, `INET`, `TEXT`, `BOOL` 等)。 |
+| `DbType` | `Enum` | 强制指定数据库类型（如 `JSONB`, `UUID`, `INET`, `TEXT`, `BOOL` 等；默认 `AutoMatch`）。 |
+| `DbTypeStr` | `string` | 直接指定自定义 DB 类型字符串（优先级高于 `DbType`）。 |
 | `ZeroAsNull` | `bool` | 插入/更新时，如果 Go 结构体中是零值，则写入数据库 `NULL`。 |
+| `Comment` | `[]string` | 字段注释（在生成 SQL 且开启 comment 输出时生效）。 |
 
 ### 类型映射表 (Postgres 示例)
 
@@ -167,7 +195,7 @@ func main() {
 | `bool` | `boolean` | - | - |
 | `int32` | `integer` | `SerialType=4` -> `serial` | - |
 | `int64` | `bigint` | `SerialType=8` -> `bigserial` | - |
-| `string` | `text` | `JSONB`, `UUID`, `INET`, `Unspecified` | 默认 text，可映射为高级类型 |
+| `string` | `text` | `JSONB`, `UUID`, `INET`, `TEXT` | 默认 text，可映射为高级类型 |
 | `bytes` | `bytea` | - | - |
 | `float` | `real` | - | - |
 | `double` | `double precision` | - | - |
@@ -185,6 +213,8 @@ func main() {
 * **Where 过滤**: 支持 `Field == Value` 的简单过滤。
 * **Where2 高级过滤**: 支持 `WOP_GT` (>), `WOP_LT` (<), `WOP_LIKE` (Like) 等操作符。
 * **分页**: `Limit` 和 `Offset`。
+
+注意：当使用 `Where2` 时，需要同时填充 `Where2Operator`，且两者长度必须一致。
 
 ### 2. 自定义 SQL 查询 (Query)
 
