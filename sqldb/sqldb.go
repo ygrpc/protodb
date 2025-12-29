@@ -2,11 +2,12 @@ package sqldb
 
 import (
 	"database/sql"
-	"github.com/ygrpc/protodb/protosql"
 	"log"
 	"reflect"
 	"strconv"
 	"time"
+
+	"github.com/ygrpc/protodb/protosql"
 
 	"github.com/puzpuzpuz/xsync/v3"
 )
@@ -68,6 +69,9 @@ func GetDBDialect(db *sql.DB) (dialect TDBDialect) {
 	case "*pq.Driver":
 		//lib/pq driver
 		return Postgres
+	case "*mysql.MySQLDriver":
+		// github.com/go-sql-driver/mysql
+		return Mysql
 	case "*sqlite3.SQLiteDriver":
 		//mattn/go-sqlite3 driver
 		return SQLite
