@@ -54,9 +54,9 @@ The main service is `service.TconnectrpcProtoDbSrvHandlerImpl` which implements 
 ```go
 // TconnectrpcProtoDbSrvHandlerImpl
 type TconnectrpcProtoDbSrvHandlerImpl struct {
- FnGetDb                   crud.TfnProtodbGetDb
- fnCrudPermissionMap       map[string]crud.TfnProtodbCrudPermission
- fnTableQueryPermissionMap map[string]crud.TfnTableQueryPermission
+ FnGetDb                   service.TfnProtodbGetDb
+ fnCrudPermissionMap       map[string]service.TfnProtodbCrudPermission
+ fnTableQueryPermissionMap map[string]service.TfnTableQueryPermission
 }
 ```
 
@@ -64,67 +64,41 @@ type TconnectrpcProtoDbSrvHandlerImpl struct {
 
 You must implement these functions to wire up the service:
 
-1. **`TfnProtodbGetDb`** (legacy):
+1. **`TfnProtodbGetDb`** (recommended):
 
     ```go
-    func(meta http.Header, schemaName string, tableName string, writable bool) (*sql.DB, error)
+    func(meta http.Header, schemaName string, tableName string, writable bool) (sqldb.DB, error)
     ```
 
-    - Returns the `sql.DB` connection to use.
-    - Deprecated: Use `TfnProtodbGetDBExecutor` for transaction support.
-
-2. **`TfnProtodbGetDBExecutor`** (recommended):
-
-    ```go
-    func(meta http.Header, schemaName string, tableName string, writable bool) (sqldb.DBExecutor, error)
-    ```
-
-    - Returns a `sqldb.DBExecutor` which can be `*sql.DB`, `*sql.Tx`, or `*sqldb.DBWithDialect`.
+    - Returns a `sqldb.DB` which can be `*sql.DB`, `*sql.Tx`, or `*sqldb.DBWithDialect`.
     - Use this for transaction support.
 
-3. **`TfnProtodbCrudPermission`** (legacy):
+2. **`TfnProtodbCrudPermission`** (recommended):
 
     ```go
-    func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) error
+    func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db sqldb.DB, dbmsg proto.Message) error
     ```
 
-    - Check if the user has permission to perform the CRUD operation.
-    - `crudCode`: `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
+    - Same as above but accepts `DB` for transaction support.
 
-4. **`TfnProtodbCrudPermissionExecutor`** (recommended):
+3. **`TfnTableQueryPermission`** (recommended):
 
     ```go
-    func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db sqldb.DBExecutor, dbmsg proto.Message) error
+    func(meta http.Header, schemaName string, tableName string, db sqldb.DB, dbmsg proto.Message) (whereSqlStr string, whereSqlVals []any, err error)
     ```
 
-    - Same as above but accepts `DBExecutor` for transaction support.
+    - Same as above but accepts `DB` for transaction support.
 
-5. **`TfnTableQueryPermission`** (legacy):
+#### Transaction Support (`sqldb.DB`)
 
-    ```go
-    func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (whereSqlStr string, whereSqlVals []any, err error)
-    ```
-
-    - Returns a WHERE clause fragment (and args) to enforce row-level security or filtering.
-
-6. **`TfnTableQueryPermissionExecutor`** (recommended):
-
-    ```go
-    func(meta http.Header, schemaName string, tableName string, db sqldb.DBExecutor, dbmsg proto.Message) (whereSqlStr string, whereSqlVals []any, err error)
-    ```
-
-    - Same as above but accepts `DBExecutor` for transaction support.
-
-#### Transaction Support (`sqldb.DBExecutor`)
-
-The `DBExecutor` interface (`sqldb/executor.go`) abstracts the common methods of `*sql.DB` and `*sql.Tx`, enabling:
+The `DB` interface (`sqldb/executor.go`) abstracts the common methods of `*sql.DB` and `*sql.Tx`, enabling:
 
 - **Single operations** using `*sql.DB` directly (auto-commit each operation)
 - **Multiple atomic operations** using `*sql.Tx` for transactions
 
 ```go
-// DBExecutor interface methods:
-type DBExecutor interface {
+// DB interface methods:
+type DB interface {
     Exec(query string, args ...any) (sql.Result, error)
     ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
     Query(query string, args ...any) (*sql.Rows, error)
@@ -140,7 +114,7 @@ type DBExecutor interface {
 
 ```go
 // Using with *sql.DB (auto-commit each operation)
-var executor sqldb.DBExecutor = db
+var executor sqldb.DB = db
 crud.DbInsert(executor, msg, lastFieldNo, schema)
 
 // Using with *sql.Tx (atomic transaction)
@@ -196,11 +170,16 @@ If the driver is unknown, the dialect falls back to `Unknown` and placeholders d
 
 ### CRUD Operations (`crud` package)
 
-- `Crud()`: Entry point for `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
-- `TableQuery()`: Entry point for list/search queries.
-- `Query()`: Entry point for custom SQL queries defined in `querystore`.
+- `DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc: ORM operations.
+- All ORM functions accept `sqldb.DB` instead of `*sql.DB`, enabling transaction support.
 
-All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now accept `sqldb.DBExecutor` instead of `*sql.DB`, enabling transaction support.
+### RPC Orchestration (`service` package)
+
+- `HandleCrud()`: Entry point for `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
+- `HandleTableQuery()`: Entry point for list/search queries.
+- `HandleQuery()`: Entry point for custom SQL queries defined in `querystore`.
+
+All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now accept `sqldb.DB` instead of `*sql.DB`, enabling transaction support.
 
 ### Type Mapping (Postgres Example)
 
@@ -214,7 +193,7 @@ All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now
 
 1. Define `.proto` with `protodb` options.
 2. Generate code using `protoc` with `go` and `connect-go` plugins.
-3. Implement `FnGetDb` (or `FnGetDBExecutor` for transactions), `FnCrudPermission`, `FnTableQueryPermission`.
+3. Implement `FnGetDb`, `FnCrudPermission`, `FnTableQueryPermission`.
 4. Initialize `service.NewTconnectrpcProtoDbSrvHandlerImpl`.
 5. Serve using `http.ListenAndServe`.
 
@@ -222,7 +201,7 @@ All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now
 
 ```go
 // Service-level transaction handling
-func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
+func RunInTransaction(db *sql.DB, fn func(tx sqldb.DB) error) error {
     tx, err := db.Begin()
     if err != nil {
         return err
@@ -240,7 +219,7 @@ func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
 }
 
 // Usage
-err := RunInTransaction(db, func(tx sqldb.DBExecutor) error {
+err := RunInTransaction(db, func(tx sqldb.DB) error {
     // Insert order
     _, err := crud.DbInsert(tx, orderMsg, 0, "")
     if err != nil {

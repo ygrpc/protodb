@@ -140,7 +140,7 @@ func BuildDbTableName(tableName string, dbschema string, dbdialect TDBDialect) s
 	return dbtableName
 }
 
-// GetExecutorDialect gets the dialect from a DBExecutor.
+// GetExecutorDialect gets the dialect from a DB.
 // If the executor is a *sql.DB, it directly detects the dialect.
 // If the executor is a *DBWithDialect, it returns the stored dialect.
 // If the executor is a *sql.Tx or other unknown type, it returns Unknown.
@@ -149,7 +149,7 @@ func BuildDbTableName(tableName string, dbschema string, dbdialect TDBDialect) s
 // 1. Detect dialect from *sql.DB before beginning transaction
 // 2. Use NewTxWithDialectType(tx, dialect) to wrap the transaction
 // 3. Pass the wrapped executor to CRUD functions
-func GetExecutorDialect(executor DBExecutor) TDBDialect {
+func GetExecutorDialect(executor DB) TDBDialect {
 	switch e := executor.(type) {
 	case *sql.DB:
 		return GetDBDialect(e)

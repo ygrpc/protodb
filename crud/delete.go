@@ -15,8 +15,8 @@ import (
 )
 
 // DbDeleteReturn delete a message from db and return the deleted message
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
 
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
@@ -27,7 +27,7 @@ func DbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string) (re
 
 }
 
-func dbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
+func dbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlDelete(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
@@ -53,8 +53,8 @@ func dbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string, tab
 }
 
 // DbDelete delete a message from db
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbDelete(db sqldb.DBExecutor, msg proto.Message, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbDelete(db sqldb.DB, msg proto.Message, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()

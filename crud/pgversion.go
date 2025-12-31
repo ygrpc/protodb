@@ -21,10 +21,10 @@ var errPgVersionNotFound = errors.New("pg version not found")
 var pgversionMap = xsync.NewMapOf[unsafe.Pointer, TpgVersion]()
 
 // GetPgVersion gets the PostgreSQL version from cache or database.
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support.
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support.
 // For caching purposes, if db is *sql.DB or *sqldb.DBWithDialect containing *sql.DB,
 // the result is cached. For *sql.Tx, the result is not cached.
-func GetPgVersion(db sqldb.DBExecutor) (version TpgVersion, err error) {
+func GetPgVersion(db sqldb.DB) (version TpgVersion, err error) {
 	// Try to get cache key from underlying *sql.DB
 	var cacheKey unsafe.Pointer
 	switch d := db.(type) {
@@ -58,8 +58,8 @@ func GetPgVersion(db sqldb.DBExecutor) (version TpgVersion, err error) {
 }
 
 // SearchPgVersionInDB queries the database to get the PostgreSQL version.
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support.
-func SearchPgVersionInDB(db sqldb.DBExecutor) (version TpgVersion, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support.
+func SearchPgVersionInDB(db sqldb.DB) (version TpgVersion, err error) {
 	// Try multiple ways to get version string
 	var verStr string
 

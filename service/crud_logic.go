@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"net/http"
 
@@ -56,17 +55,16 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
 			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
+			newMsgBytes, err := crud.MsgMarshal(newMsg, req.MsgFormat)
 			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
 			resp = &protodb.CrudResp{
 				RowsAffected: 1,
-				NewMsgBytes:  NewMsgBytes,
+				NewMsgBytes:  newMsgBytes,
+				MsgFormat:    req.MsgFormat,
 			}
-
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
-
 			return resp, nil
 		}
 	case protodb.CrudReqCode_UPDATE:
@@ -362,7 +360,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 		return fnSend(resp)
 	}
 
-	db, err := fnGetDb(meta, "", "", false)
+	executor, err := fnGetDb(meta, "", "", false)
 	if err != nil {
 		return sendErr(err)
 	}
@@ -372,7 +370,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 		return sendErr(fmt.Errorf("err: can not get query fn for %s", req.QueryName))
 	}
 
-	sqlStr, sqlVals, fnGetResultMsg, err := fn(meta, db, req)
+	sqlStr, sqlVals, fnGetResultMsg, err := fn(meta, executor, req)
 	if err != nil {
 		return sendErr(fmt.Errorf("generate query sql for %s err: %w", req.QueryName, err))
 	}
@@ -392,7 +390,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 	msgDesc := resultMsg.ProtoReflect().Descriptor()
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := executor.Query(sqlStr, sqlVals...)
 	if err != nil {
 		return sendErr(fmt.Errorf("query %s err: %w", req.QueryName, err))
 	}
@@ -468,6 +466,3 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 	return nil
 
 }
-
-// Ensure *sql.DB satisfies legacy expectations in permission fns.
-var _ = sql.ErrNoRows

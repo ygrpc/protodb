@@ -17,8 +17,8 @@ import (
 )
 
 // DbUpdate update a message in db
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdate(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -28,7 +28,7 @@ func DbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbsc
 }
 
 // dbUpdate update a message in db
-func dbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdate(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (dmlResult *protodb.CrudResp, err error) {
@@ -57,8 +57,8 @@ func dbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbsc
 }
 
 // DbUpdateReturnNew update a message in db and return the updated message
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdateReturnNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (newMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdateReturnNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -68,8 +68,8 @@ func DbUpdateReturnNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo in
 }
 
 // DbUpdateReturnOldAndNew update a message in db and return both old and new messages
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdateReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdateReturnOldAndNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -79,7 +79,7 @@ func DbUpdateReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, msgLastFiel
 }
 
 // dbUpdateReturnNew update a message in db and return the updated message
-func dbUpdateReturnNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdateReturnNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (newMsg proto.Message, err error) {
@@ -249,7 +249,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 }
 
 // dbUpdateReturnOldAndNew updates a message in db and returns both old and new messages
-func dbUpdateReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdateReturnOldAndNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (oldMsg proto.Message, newMsg proto.Message, err error) {

@@ -1,11 +1,11 @@
 package service
 
 import (
-	"database/sql"
 	"net/http"
 
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/ygrpc/protodb"
+	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -15,7 +15,7 @@ import (
 // req request message
 // reqMsg request message
 // respMsg response message, may be nil
-type TfnCrudBroadcastHandler func(meta http.Header, db *sql.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message)
+type TfnCrudBroadcastHandler func(meta http.Header, db sqldb.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message)
 
 type TcrudBroadcaster struct {
 	// msgName => fns
@@ -94,7 +94,7 @@ func (this *TcrudBroadcaster) UnregisterBroadcast(msgName string, fnCrudBroadcas
 }
 
 // Broadcast a crud operation
-func (this *TcrudBroadcaster) Broadcast(meta http.Header, db *sql.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
+func (this *TcrudBroadcaster) Broadcast(meta http.Header, db sqldb.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
 	fns, _ := this.fnCrudBroadcastMap.Load(req.TableName)
 	if len(fns) > 0 {
 		broadcastCrudReq(fns, meta, db, req, reqMsg, respMsg)
@@ -110,7 +110,7 @@ func (this *TcrudBroadcaster) Broadcast(meta http.Header, db *sql.DB, req *proto
 	broadcastCrudReq(msgFns, meta, db, req, reqMsg, respMsg)
 }
 
-func broadcastCrudReq(fns []TfnCrudBroadcastHandler, meta http.Header, db *sql.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
+func broadcastCrudReq(fns []TfnCrudBroadcastHandler, meta http.Header, db sqldb.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
 	for _, fn := range fns {
 		fn(meta, db, req, reqMsg, respMsg)
 	}

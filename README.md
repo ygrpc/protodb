@@ -91,6 +91,7 @@ import (
     "github.com/ygrpc/protodb"
     "github.com/ygrpc/protodb/msgstore"
     "github.com/ygrpc/protodb/service"
+    "github.com/ygrpc/protodb/sqldb"
     _ "github.com/lib/pq" // Postgres 驱动
 )
 
@@ -108,18 +109,18 @@ func main() {
     })
 
     // 2. 定义获取数据库连接的函数
-    fnGetDb := func(meta http.Header, schema, table string, writable bool) (*sql.DB, error) {
+    fnGetDb := func(meta http.Header, schema, table string, writable bool) (sqldb.DB, error) {
         return db, nil // 在实际场景中，可以根据 table 做分库分表
     }
 
     // 3. 定义 CRUD 权限控制 (示例：允许所有)
-    fnCrudPerm := func(meta http.Header, schema string, code protodb.CrudReqCode, db *sql.DB, msg proto.Message) error {
+    fnCrudPerm := func(meta http.Header, schema string, code protodb.CrudReqCode, db sqldb.DB, msg proto.Message) error {
         return nil // 返回 error 则拒绝操作
     }
     
     // 4. 定义查询权限控制 (示例：只查询自己的数据)
     // 返回 SQL 过滤条件 (WHERE ...)
-    fnQueryPerm := func(meta http.Header, schema, table string, db *sql.DB, msg proto.Message) (string, []any, error) {
+    fnQueryPerm := func(meta http.Header, schema, table string, db sqldb.DB, msg proto.Message) (string, []any, error) {
         // e.g. return "user_id = $1", []any{currentUserId}, nil
         return "", nil, nil
     }
@@ -229,16 +230,17 @@ func main() {
 
 `protodb` 支持在事务中执行多个原子性的数据库操作。这对于金融、订单等严肃的业务系统至关重要。
 
-#### DBExecutor 接口
+#### DB 接口
 
-所有 CRUD 函数现在都接受 `sqldb.DBExecutor` 接口，该接口同时被 `*sql.DB` 和 `*sql.Tx` 实现：
+所有 CRUD 函数现在都接受 `sqldb.DB` 接口，该接口同时被 `*sql.DB` 和 `*sql.Tx` 实现：
 
 ```go
-// DBExecutor 定义了 *sql.DB 和 *sql.Tx 的通用方法
-type DBExecutor interface {
+// DB 定义了 *sql.DB 和 *sql.Tx 的通用方法
+type DB interface {
     Exec(query string, args ...any) (sql.Result, error)
     Query(query string, args ...any) (*sql.Rows, error)
     QueryRow(query string, args ...any) *sql.Row
+}
     // ... 以及 Context 版本的方法
 }
 ```
@@ -291,7 +293,7 @@ func CreateOrderWithItems(db *sql.DB, order *Order, items []*OrderItem) error {
 
 ```go
 // RunInTransaction 提供一个通用的事务封装
-func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
+func RunInTransaction(db *sql.DB, fn func(tx sqldb.DB) error) error {
     tx, err := db.Begin()
     if err != nil {
         return err
@@ -309,7 +311,7 @@ func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
 }
 
 // 使用示例
-err := RunInTransaction(db, func(tx sqldb.DBExecutor) error {
+err := RunInTransaction(db, func(tx sqldb.DB) error {
     // 所有操作在同一事务中执行
     _, err := crud.DbInsert(tx, order, 0, "")
     if err != nil {
@@ -324,7 +326,7 @@ err := RunInTransaction(db, func(tx sqldb.DBExecutor) error {
 #### 兼容性说明
 
 * **向后兼容**: 现有使用 `*sql.DB` 的代码无需修改，可以直接继续工作
-* **新代码建议**: 使用 `sqldb.DBExecutor` 接口以获得事务支持
+* **新代码建议**: 使用 `sqldb.DB` 接口以获得事务支持
 * **注意事项**: 使用 `*sql.Tx` 时，需要用 `sqldb.DBWithDialect` 包装以保留数据库方言信息
 
 ---

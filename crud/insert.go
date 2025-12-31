@@ -17,8 +17,8 @@ import (
 )
 
 // DbInsertReturn insert a message to db and return the inserted message
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbInsertReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -28,8 +28,8 @@ func DbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32
 }
 
 // DbInsert insert a message to db
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbInsert(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbInsert(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -39,8 +39,8 @@ func DbInsert(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbsc
 }
 
 // DbInsertWithTableNameReturn insert a message to db with table name and return the inserted message
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbInsertWithTableNameReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbInsertWithTableNameReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -49,8 +49,8 @@ func DbInsertWithTableNameReturn(db sqldb.DBExecutor, msg proto.Message, msgLast
 }
 
 // DbInsertWithTableName insert a message to db with table name
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbInsertWithTableName(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbInsertWithTableName(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -59,7 +59,7 @@ func DbInsertWithTableName(db sqldb.DBExecutor, msg proto.Message, msgLastFieldN
 }
 
 // dbInsertReturn insert a message to db and return the inserted message
-func dbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbInsertReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
@@ -90,7 +90,7 @@ func dbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32
 }
 
 // dbInsert insert a message to db
-func dbInsert(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbInsert(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 

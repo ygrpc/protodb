@@ -5,7 +5,7 @@ import (
 	"database/sql"
 )
 
-// DBExecutor is an interface that abstracts the common methods of *sql.DB and *sql.Tx.
+// DB is an interface that abstracts the common methods of *sql.DB and *sql.Tx.
 // This allows CRUD operations to work with both database connections and transactions.
 //
 // Both *sql.DB and *sql.Tx implement this interface, enabling:
@@ -15,16 +15,16 @@ import (
 // Usage:
 //
 //	// Using with *sql.DB (auto-commit each operation)
-//	var executor DBExecutor = db
+//	var executor DB = db
 //	crud.DbInsert(executor, msg, lastFieldNo, schema)
 //
 //	// Using with *sql.Tx (atomic transaction)
 //	tx, _ := db.Begin()
-//	var executor DBExecutor = tx
+//	var executor DB = tx
 //	crud.DbInsert(executor, msg1, lastFieldNo, schema)
 //	crud.DbUpdate(executor, msg2, lastFieldNo, schema)
 //	tx.Commit()
-type DBExecutor interface {
+type DB interface {
 	// Exec executes a query without returning any rows.
 	// The args are for any placeholder parameters in the query.
 	Exec(query string, args ...any) (sql.Result, error)
@@ -62,11 +62,11 @@ type DBExecutor interface {
 	PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
 
-// DBWithDialect wraps a DBExecutor with dialect information.
+// DBWithDialect wraps a DB with dialect information.
 // This is necessary because GetDBDialect requires access to the underlying *sql.DB
 // to determine the database driver type, but a *sql.Tx doesn't expose the driver info.
 type DBWithDialect struct {
-	Executor DBExecutor
+	Executor DB
 	Dialect  TDBDialect
 }
 
@@ -97,42 +97,42 @@ func NewTxWithDialectType(tx *sql.Tx, dialect TDBDialect) *DBWithDialect {
 	}
 }
 
-// Exec implements DBExecutor.
+// Exec implements DB.
 func (d *DBWithDialect) Exec(query string, args ...any) (sql.Result, error) {
 	return d.Executor.Exec(query, args...)
 }
 
-// ExecContext implements DBExecutor.
+// ExecContext implements DB.
 func (d *DBWithDialect) ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error) {
 	return d.Executor.ExecContext(ctx, query, args...)
 }
 
-// Query implements DBExecutor.
+// Query implements DB.
 func (d *DBWithDialect) Query(query string, args ...any) (*sql.Rows, error) {
 	return d.Executor.Query(query, args...)
 }
 
-// QueryContext implements DBExecutor.
+// QueryContext implements DB.
 func (d *DBWithDialect) QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error) {
 	return d.Executor.QueryContext(ctx, query, args...)
 }
 
-// QueryRow implements DBExecutor.
+// QueryRow implements DB.
 func (d *DBWithDialect) QueryRow(query string, args ...any) *sql.Row {
 	return d.Executor.QueryRow(query, args...)
 }
 
-// QueryRowContext implements DBExecutor.
+// QueryRowContext implements DB.
 func (d *DBWithDialect) QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row {
 	return d.Executor.QueryRowContext(ctx, query, args...)
 }
 
-// Prepare implements DBExecutor.
+// Prepare implements DB.
 func (d *DBWithDialect) Prepare(query string) (*sql.Stmt, error) {
 	return d.Executor.Prepare(query)
 }
 
-// PrepareContext implements DBExecutor.
+// PrepareContext implements DB.
 func (d *DBWithDialect) PrepareContext(ctx context.Context, query string) (*sql.Stmt, error) {
 	return d.Executor.PrepareContext(ctx, query)
 }
@@ -142,18 +142,18 @@ func (d *DBWithDialect) GetDialect() TDBDialect {
 	return d.Dialect
 }
 
-// compile time check that both *sql.DB and *sql.Tx implement DBExecutor
+// compile time check that both *sql.DB and *sql.Tx implement DB
 var (
-	_ DBExecutor = (*sql.DB)(nil)
-	_ DBExecutor = (*sql.Tx)(nil)
-	_ DBExecutor = (*DBWithDialect)(nil)
+	_ DB = (*sql.DB)(nil)
+	_ DB = (*sql.Tx)(nil)
+	_ DB = (*DBWithDialect)(nil)
 )
 
-// GetDBDialectFromExecutor attempts to get the dialect from a DBExecutor.
+// GetsqlDBDialect attempts to get the dialect from a DB.
 // If the executor is a *sql.DB, it directly detects the dialect.
 // If the executor is a *DBWithDialect, it returns the stored dialect.
 // Otherwise, it returns Unknown.
-func GetDBDialectFromExecutor(executor DBExecutor) TDBDialect {
+func GetsqlDBDialect(executor DB) TDBDialect {
 	switch e := executor.(type) {
 	case *sql.DB:
 		return GetDBDialect(e)

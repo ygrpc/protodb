@@ -17,8 +17,8 @@ import (
 )
 
 // DbUpdatePartial update a message in db
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdatePartial(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -29,7 +29,7 @@ func DbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []stri
 }
 
 // dbUpdatePartial update a message in db
-func dbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartial(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 
@@ -61,8 +61,8 @@ func dbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []stri
 }
 
 // DbUpdatePartialReturnNew update a message in db and return the updated message
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdatePartialReturnNew(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -72,7 +72,7 @@ func DbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFiel
 }
 
 // dbUpdatePartialReturnNew update a message in db and return the updated message
-func dbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartialReturnNew(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
@@ -103,8 +103,8 @@ func dbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFiel
 }
 
 // DbUpdatePartialReturnOldAndNew update a message in db and return both old and new messages
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbUpdatePartialReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbUpdatePartialReturnOldAndNew(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -114,7 +114,7 @@ func DbUpdatePartialReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, upda
 }
 
 // dbUpdatePartialReturnOldAndNew updates a message in db and returns both old and new messages
-func dbUpdatePartialReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartialReturnOldAndNew(db sqldb.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (oldMsg proto.Message, newMsg proto.Message, err error) {
 

@@ -15,8 +15,8 @@ import (
 // DbSelectOne select one message from db, if keyColumns is empty, use primary key fields as key columns, keyColumns need is unique
 // if resultColumns is empty, use all fields as result columns
 // limitPkUk: if true, limit primary key or unique key columns for select one, keyColumns should be unique
-// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
-func DbSelectOne(db sqldb.DBExecutor, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, limitPkUk bool) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support
+func DbSelectOne(db sqldb.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, limitPkUk bool) (returnMsg proto.Message, err error) {
 	if len(keyColumns) > 0 {
 		err = checkSQLColumnsIsNoInjection(keyColumns, ColumnNameCheckMethodStrict)
 		if err != nil {
@@ -40,7 +40,7 @@ func DbSelectOne(db sqldb.DBExecutor, msg proto.Message, keyColumns []string, re
 	return dbSelectOne(db, msg, keyColumns, resultColumns, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, limitPkUk)
 }
 
-func dbSelectOne(db sqldb.DBExecutor, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, tableName string,
+func dbSelectOne(db sqldb.DB, msg proto.Message, keyColumns []string, resultColumns []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 	dbdialect sqldb.TDBDialect, limitPkUk bool) (returnMsg proto.Message, err error) {

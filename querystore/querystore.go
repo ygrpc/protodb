@@ -1,14 +1,15 @@
 package querystore
 
 import (
-	"database/sql"
 	"fmt"
+	"net/http"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/msgstore"
-	"net/http"
+	"github.com/ygrpc/protodb/sqldb"
 )
 
-type TfnQuerySqlGenerator func(meta http.Header, db *sql.DB, req *protodb.QueryReq) (sqlStr string, sqlVals []interface{},
+type TfnQuerySqlGenerator func(meta http.Header, db sqldb.DB, req *protodb.QueryReq) (sqlStr string, sqlVals []interface{},
 	fnGetResultMsg msgstore.TFnGetMsg, err error)
 
 var queryStore = make(map[string]TfnQuerySqlGenerator)
