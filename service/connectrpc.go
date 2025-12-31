@@ -49,8 +49,9 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 
 	fnCrudPermission := this.fnCrudPermissionMap[CrudMsg.TableName]
 
-	if fnCrudPermission == nil && CrudMsg.Code != protodb.CrudReqCode_SELECTONE {
-		errInfo := fmt.Errorf("no crudpermission function for table %s", CrudMsg.TableName)
+	// Secure by Default: deny all operations if no permission function is registered
+	if fnCrudPermission == nil {
+		errInfo := fmt.Errorf("no crudpermission function registered for table %s, operation %s denied", CrudMsg.TableName, CrudMsg.Code.String())
 		connecterr := connect.NewError(
 			connect.CodePermissionDenied,
 			errInfo,
