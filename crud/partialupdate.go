@@ -17,7 +17,8 @@ import (
 )
 
 // DbUpdatePartial update a message in db
-func DbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -28,11 +29,11 @@ func DbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbsch
 }
 
 // dbUpdatePartial update a message in db
-func dbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartial(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdatePartial(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {
@@ -60,7 +61,8 @@ func dbUpdatePartial(db *sql.DB, msg proto.Message, updateFields []string, dbsch
 }
 
 // DbUpdatePartialReturnNew update a message in db and return the updated message
-func DbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -70,11 +72,11 @@ func DbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []stri
 }
 
 // dbUpdatePartialReturnNew update a message in db and return the updated message
-func dbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartialReturnNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdatePartial(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -101,7 +103,8 @@ func dbUpdatePartialReturnNew(db *sql.DB, msg proto.Message, updateFields []stri
 }
 
 // DbUpdatePartialReturnOldAndNew update a message in db and return both old and new messages
-func DbUpdatePartialReturnOldAndNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdatePartialReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -111,11 +114,11 @@ func DbUpdatePartialReturnOldAndNew(db *sql.DB, msg proto.Message, updateFields 
 }
 
 // dbUpdatePartialReturnOldAndNew updates a message in db and returns both old and new messages
-func dbUpdatePartialReturnOldAndNew(db *sql.DB, msg proto.Message, updateFields []string, dbschema string, tableName string,
+func dbUpdatePartialReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, updateFields []string, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (oldMsg proto.Message, newMsg proto.Message, err error) {
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	//if db is sqlite, sqlite is not support return old and new,use selectone + returnnew
 	if dbdialect == sqldb.SQLite {

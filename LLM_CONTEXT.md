@@ -64,15 +64,25 @@ type TconnectrpcProtoDbSrvHandlerImpl struct {
 
 You must implement these functions to wire up the service:
 
-1. **`TfnProtodbGetDb`**:
+1. **`TfnProtodbGetDb`** (legacy):
 
     ```go
     func(meta http.Header, schemaName string, tableName string, writable bool) (*sql.DB, error)
     ```
 
     - Returns the `sql.DB` connection to use.
+    - Deprecated: Use `TfnProtodbGetDBExecutor` for transaction support.
 
-2. **`TfnProtodbCrudPermission`**:
+2. **`TfnProtodbGetDBExecutor`** (recommended):
+
+    ```go
+    func(meta http.Header, schemaName string, tableName string, writable bool) (sqldb.DBExecutor, error)
+    ```
+
+    - Returns a `sqldb.DBExecutor` which can be `*sql.DB`, `*sql.Tx`, or `*sqldb.DBWithDialect`.
+    - Use this for transaction support.
+
+3. **`TfnProtodbCrudPermission`** (legacy):
 
     ```go
     func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db *sql.DB, dbmsg proto.Message) error
@@ -81,13 +91,68 @@ You must implement these functions to wire up the service:
     - Check if the user has permission to perform the CRUD operation.
     - `crudCode`: `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
 
-3. **`TfnTableQueryPermission`**:
+4. **`TfnProtodbCrudPermissionExecutor`** (recommended):
+
+    ```go
+    func(meta http.Header, schemaName string, crudCode protodb.CrudReqCode, db sqldb.DBExecutor, dbmsg proto.Message) error
+    ```
+
+    - Same as above but accepts `DBExecutor` for transaction support.
+
+5. **`TfnTableQueryPermission`** (legacy):
 
     ```go
     func(meta http.Header, schemaName string, tableName string, db *sql.DB, dbmsg proto.Message) (whereSqlStr string, whereSqlVals []any, err error)
     ```
 
     - Returns a WHERE clause fragment (and args) to enforce row-level security or filtering.
+
+6. **`TfnTableQueryPermissionExecutor`** (recommended):
+
+    ```go
+    func(meta http.Header, schemaName string, tableName string, db sqldb.DBExecutor, dbmsg proto.Message) (whereSqlStr string, whereSqlVals []any, err error)
+    ```
+
+    - Same as above but accepts `DBExecutor` for transaction support.
+
+#### Transaction Support (`sqldb.DBExecutor`)
+
+The `DBExecutor` interface (`sqldb/executor.go`) abstracts the common methods of `*sql.DB` and `*sql.Tx`, enabling:
+
+- **Single operations** using `*sql.DB` directly (auto-commit each operation)
+- **Multiple atomic operations** using `*sql.Tx` for transactions
+
+```go
+// DBExecutor interface methods:
+type DBExecutor interface {
+    Exec(query string, args ...any) (sql.Result, error)
+    ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+    Query(query string, args ...any) (*sql.Rows, error)
+    QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+    QueryRow(query string, args ...any) *sql.Row
+    QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+    Prepare(query string) (*sql.Stmt, error)
+    PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
+}
+```
+
+**Usage Examples:**
+
+```go
+// Using with *sql.DB (auto-commit each operation)
+var executor sqldb.DBExecutor = db
+crud.DbInsert(executor, msg, lastFieldNo, schema)
+
+// Using with *sql.Tx (atomic transaction)
+tx, _ := db.Begin()
+dialect := sqldb.GetDBDialect(db) // Get dialect before transaction
+executor := sqldb.NewTxWithDialectType(tx, dialect)
+crud.DbInsert(executor, msg1, lastFieldNo, schema)
+crud.DbUpdate(executor, msg2, lastFieldNo, schema)
+tx.Commit() // or tx.Rollback() on error
+```
+
+**Important:** When using `*sql.Tx`, you should wrap it with `sqldb.DBWithDialect` to preserve dialect information, since `*sql.Tx` doesn't expose the underlying driver type.
 
 #### Msg Registration (`msgstore`)
 
@@ -127,11 +192,15 @@ Dialect detection is based on the concrete `database/sql` driver type string (`r
 
 If the driver is unknown, the dialect falls back to `Unknown` and placeholders default to `?`.
 
+**Note:** For `*sql.Tx`, use `sqldb.GetExecutorDialect()` or wrap the transaction with `sqldb.DBWithDialect` to preserve dialect information.
+
 ### CRUD Operations (`crud` package)
 
 - `Crud()`: Entry point for `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
 - `TableQuery()`: Entry point for list/search queries.
 - `Query()`: Entry point for custom SQL queries defined in `querystore`.
+
+All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now accept `sqldb.DBExecutor` instead of `*sql.DB`, enabling transaction support.
 
 ### Type Mapping (Postgres Example)
 
@@ -145,6 +214,47 @@ If the driver is unknown, the dialect falls back to `Unknown` and placeholders d
 
 1. Define `.proto` with `protodb` options.
 2. Generate code using `protoc` with `go` and `connect-go` plugins.
-3. Implement `FnGetDb`, `FnCrudPermission`, `FnTableQueryPermission`.
+3. Implement `FnGetDb` (or `FnGetDBExecutor` for transactions), `FnCrudPermission`, `FnTableQueryPermission`.
 4. Initialize `service.NewTconnectrpcProtoDbSrvHandlerImpl`.
 5. Serve using `http.ListenAndServe`.
+
+## Transaction Example
+
+```go
+// Service-level transaction handling
+func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
+    tx, err := db.Begin()
+    if err != nil {
+        return err
+    }
+    
+    dialect := sqldb.GetDBDialect(db)
+    executor := sqldb.NewTxWithDialectType(tx, dialect)
+    
+    if err := fn(executor); err != nil {
+        tx.Rollback()
+        return err
+    }
+    
+    return tx.Commit()
+}
+
+// Usage
+err := RunInTransaction(db, func(tx sqldb.DBExecutor) error {
+    // Insert order
+    _, err := crud.DbInsert(tx, orderMsg, 0, "")
+    if err != nil {
+        return err
+    }
+    
+    // Insert order items (atomic with order)
+    for _, item := range orderItems {
+        _, err := crud.DbInsert(tx, item, 0, "")
+        if err != nil {
+            return err // Transaction will be rolled back
+        }
+    }
+    
+    return nil // Transaction will be committed
+})
+```

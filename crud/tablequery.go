@@ -1,7 +1,6 @@
 package crud
 
 import (
-	"database/sql"
 	"fmt"
 	"strings"
 
@@ -17,7 +16,7 @@ type TqueryItem struct {
 	Msg   proto.Message
 }
 
-func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlVals []any) (sqlStr string, sqlVals []interface{}, err error) {
+func TableQueryBuildSql(db sqldb.DBExecutor, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlVals []any) (sqlStr string, sqlVals []interface{}, err error) {
 	// Check result columns
 	if len(tableQueryReq.ResultColumnNames) > 0 {
 		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames, ColumnNameCheckMethodInWhereOrResult)
@@ -39,7 +38,7 @@ func TableQueryBuildSql(db *sql.DB, tableQueryReq *protodb.TableQueryReq, permis
 	sb.WriteString(protosql.SQL_FROM)
 
 	// Build table name
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 	dbtableName := sqldb.BuildDbTableName(tableQueryReq.TableName, tableQueryReq.SchemeName, dbdialect)
 	sb.WriteString(dbtableName)
 

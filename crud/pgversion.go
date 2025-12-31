@@ -7,6 +7,7 @@ import (
 	"unsafe"
 
 	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/ygrpc/protodb/sqldb"
 )
 
 type TpgVersion struct {
@@ -19,22 +20,46 @@ var errPgVersionNotFound = errors.New("pg version not found")
 
 var pgversionMap = xsync.NewMapOf[unsafe.Pointer, TpgVersion]()
 
-func GetPgVersion(db *sql.DB) (version TpgVersion, err error) {
-	if v, ok := pgversionMap.Load(unsafe.Pointer(db)); ok {
-		version = v
-		return
-	} else {
-		pgversion, err := SearchPgVersionInDB(db)
-		if err != nil {
-			return emptyPgVersion, err
+// GetPgVersion gets the PostgreSQL version from cache or database.
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support.
+// For caching purposes, if db is *sql.DB or *sqldb.DBWithDialect containing *sql.DB,
+// the result is cached. For *sql.Tx, the result is not cached.
+func GetPgVersion(db sqldb.DBExecutor) (version TpgVersion, err error) {
+	// Try to get cache key from underlying *sql.DB
+	var cacheKey unsafe.Pointer
+	switch d := db.(type) {
+	case *sql.DB:
+		cacheKey = unsafe.Pointer(d)
+	case *sqldb.DBWithDialect:
+		if innerDB, ok := d.Executor.(*sql.DB); ok {
+			cacheKey = unsafe.Pointer(innerDB)
 		}
-		pgversionMap.Store(unsafe.Pointer(db), pgversion)
-		return pgversion, nil
 	}
 
+	// Check cache if we have a valid cache key
+	if cacheKey != nil {
+		if v, ok := pgversionMap.Load(cacheKey); ok {
+			return v, nil
+		}
+	}
+
+	// Query the database for version
+	pgversion, err := SearchPgVersionInDB(db)
+	if err != nil {
+		return emptyPgVersion, err
+	}
+
+	// Cache the result if we have a valid cache key
+	if cacheKey != nil {
+		pgversionMap.Store(cacheKey, pgversion)
+	}
+
+	return pgversion, nil
 }
 
-func SearchPgVersionInDB(db *sql.DB) (version TpgVersion, err error) {
+// SearchPgVersionInDB queries the database to get the PostgreSQL version.
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support.
+func SearchPgVersionInDB(db sqldb.DBExecutor) (version TpgVersion, err error) {
 	// Try multiple ways to get version string
 	var verStr string
 

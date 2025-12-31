@@ -3,18 +3,20 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
+	"strings"
+
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"strconv"
-	"strings"
 )
 
 // DbDeleteReturn delete a message from db and return the deleted message
-func DbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string) (returnMsg proto.Message, err error) {
 
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
@@ -25,8 +27,8 @@ func DbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string) (returnMsg p
 
 }
 
-func dbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
-	dbdialect := sqldb.GetDBDialect(db)
+func dbDeleteReturn(db sqldb.DBExecutor, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlDelete(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -51,13 +53,14 @@ func dbDeleteReturn(db *sql.DB, msg proto.Message, dbschema string, tableName st
 }
 
 // DbDelete delete a message from db
-func DbDelete(db *sql.DB, msg proto.Message, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbDelete(db sqldb.DBExecutor, msg proto.Message, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
 	tableName := string(msgDesc.Name())
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlDelete(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {

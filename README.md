@@ -224,6 +224,108 @@ func main() {
 
 `protodb` 包含一些能够根据 Proto 定义生成 `CREATE TABLE` 语句的逻辑，这使得从定义到部署非常顺滑。您可以编写脚本调用 `pdbutil` 相关函数来输出 Schema SQL。
 
+### 4. 事务支持 (Transaction Support)
+
+`protodb` 支持在事务中执行多个原子性的数据库操作。这对于金融、订单等严肃的业务系统至关重要。
+
+#### DBExecutor 接口
+
+所有 CRUD 函数现在都接受 `sqldb.DBExecutor` 接口，该接口同时被 `*sql.DB` 和 `*sql.Tx` 实现：
+
+```go
+// DBExecutor 定义了 *sql.DB 和 *sql.Tx 的通用方法
+type DBExecutor interface {
+    Exec(query string, args ...any) (sql.Result, error)
+    Query(query string, args ...any) (*sql.Rows, error)
+    QueryRow(query string, args ...any) *sql.Row
+    // ... 以及 Context 版本的方法
+}
+```
+
+#### 基本事务用法
+
+```go
+import (
+    "database/sql"
+    "github.com/ygrpc/protodb/crud"
+    "github.com/ygrpc/protodb/sqldb"
+)
+
+// 在事务中执行多个操作
+func CreateOrderWithItems(db *sql.DB, order *Order, items []*OrderItem) error {
+    // 开始事务
+    tx, err := db.Begin()
+    if err != nil {
+        return err
+    }
+    
+    // 获取数据库方言（在事务开始前）
+    dialect := sqldb.GetDBDialect(db)
+    
+    // 创建带方言信息的 executor
+    executor := sqldb.NewTxWithDialectType(tx, dialect)
+    
+    // 插入订单
+    _, err = crud.DbInsert(executor, order, 0, "")
+    if err != nil {
+        tx.Rollback()
+        return err
+    }
+    
+    // 插入订单项（与订单在同一事务中）
+    for _, item := range items {
+        _, err = crud.DbInsert(executor, item, 0, "")
+        if err != nil {
+            tx.Rollback() // 回滚整个事务
+            return err
+        }
+    }
+    
+    // 提交事务
+    return tx.Commit()
+}
+```
+
+#### 服务层事务封装示例
+
+```go
+// RunInTransaction 提供一个通用的事务封装
+func RunInTransaction(db *sql.DB, fn func(tx sqldb.DBExecutor) error) error {
+    tx, err := db.Begin()
+    if err != nil {
+        return err
+    }
+    
+    dialect := sqldb.GetDBDialect(db)
+    executor := sqldb.NewTxWithDialectType(tx, dialect)
+    
+    if err := fn(executor); err != nil {
+        tx.Rollback()
+        return err
+    }
+    
+    return tx.Commit()
+}
+
+// 使用示例
+err := RunInTransaction(db, func(tx sqldb.DBExecutor) error {
+    // 所有操作在同一事务中执行
+    _, err := crud.DbInsert(tx, order, 0, "")
+    if err != nil {
+        return err
+    }
+    
+    _, err = crud.DbUpdate(tx, inventory, 0, "")
+    return err
+})
+```
+
+#### 兼容性说明
+
+* **向后兼容**: 现有使用 `*sql.DB` 的代码无需修改，可以直接继续工作
+* **新代码建议**: 使用 `sqldb.DBExecutor` 接口以获得事务支持
+* **注意事项**: 使用 `*sql.Tx` 时，需要用 `sqldb.DBWithDialect` 包装以保留数据库方言信息
+
 ---
 
 ## 🤝 贡献

@@ -3,9 +3,10 @@ package crud
 import (
 	"database/sql"
 	"fmt"
-	"google.golang.org/protobuf/encoding/protojson"
 	"strconv"
 	"strings"
+
+	"google.golang.org/protobuf/encoding/protojson"
 
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
@@ -16,7 +17,8 @@ import (
 )
 
 // DbInsertReturn insert a message to db and return the inserted message
-func DbInsertReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -26,7 +28,8 @@ func DbInsertReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschem
 }
 
 // DbInsert insert a message to db
-func DbInsert(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbInsert(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -36,7 +39,8 @@ func DbInsert(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 }
 
 // DbInsertWithTableNameReturn insert a message to db with table name and return the inserted message
-func DbInsertWithTableNameReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (returnMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbInsertWithTableNameReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (returnMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -45,7 +49,8 @@ func DbInsertWithTableNameReturn(db *sql.DB, msg proto.Message, msgLastFieldNo i
 }
 
 // DbInsertWithTableName insert a message to db with table name
-func DbInsertWithTableName(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbInsertWithTableName(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -54,11 +59,11 @@ func DbInsertWithTableName(db *sql.DB, msg proto.Message, msgLastFieldNo int32, 
 }
 
 // dbInsertReturn insert a message to db and return the inserted message
-func dbInsertReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbInsertReturn(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -85,11 +90,11 @@ func dbInsertReturn(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschem
 }
 
 // dbInsert insert a message to db
-func dbInsert(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbInsert(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors) (dmlResult *protodb.CrudResp, err error) {
 
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {

@@ -17,7 +17,8 @@ import (
 )
 
 // DbUpdate update a message in db
-func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (dmlResult *protodb.CrudResp, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -27,11 +28,11 @@ func DbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 }
 
 // dbUpdate update a message in db
-func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdate(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (dmlResult *protodb.CrudResp, err error) {
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
 	if err != nil {
@@ -56,7 +57,8 @@ func dbUpdate(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema stri
 }
 
 // DbUpdateReturnNew update a message in db and return the updated message
-func DbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (newMsg proto.Message, err error) {
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdateReturnNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -65,7 +67,9 @@ func DbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbsc
 	return dbUpdateReturnNew(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
 }
 
-func DbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
+// DbUpdateReturnOldAndNew update a message in db and return both old and new messages
+// db can be *sql.DB, *sql.Tx or sqldb.DBExecutor for transaction support
+func DbUpdateReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	msgPm := msg.ProtoReflect()
 	msgDesc := msgPm.Descriptor()
 	msgFieldDescs := msgDesc.Fields()
@@ -75,11 +79,11 @@ func DbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32
 }
 
 // dbUpdateReturnNew update a message in db and return the updated message
-func dbUpdateReturnNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdateReturnNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (newMsg proto.Message, err error) {
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -245,11 +249,11 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 }
 
 // dbUpdateReturnOldAndNew updates a message in db and returns both old and new messages
-func dbUpdateReturnOldAndNew(db *sql.DB, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
+func dbUpdateReturnOldAndNew(db sqldb.DBExecutor, msg proto.Message, msgLastFieldNo int32, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor,
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (oldMsg proto.Message, newMsg proto.Message, err error) {
-	dbdialect := sqldb.GetDBDialect(db)
+	dbdialect := sqldb.GetExecutorDialect(db)
 
 	//if db is sqlite, sqlite is not support return old and new,use selectone + returnnew
 	if dbdialect == sqldb.SQLite {
