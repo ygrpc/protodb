@@ -249,7 +249,8 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		}
 	}
 
-	sqlStr, sqlVals, err := crud.TableQueryBuildSql(db, TableQueryReq, permissionSqlStr, permissionSqlVals)
+	msgDesc := dbmsg.ProtoReflect().Descriptor()
+	sqlStr, sqlVals, err := crud.TableQueryBuildSql(db, msgDesc, TableQueryReq, permissionSqlStr, permissionSqlVals)
 
 	if err != nil {
 		return sendErr(fmt.Errorf("build query sql for %s err: %w", TableQueryReq.TableName, err))
@@ -271,8 +272,8 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 
 	resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, false)
 
-	msgDesc := resultMsg.ProtoReflect().Descriptor()
-	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
+	resultMsgDesc := resultMsg.ProtoReflect().Descriptor()
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, resultMsgDesc.Fields(), true)
 
 	var respNo int64 = 0
 	batchSize := TableQueryReq.PreferBatchSize

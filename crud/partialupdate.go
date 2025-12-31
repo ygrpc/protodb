@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"strings"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
@@ -236,12 +234,11 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 			hasSetDefaultValue = true
 		}
 
-		if field.Kind() == protoreflect.MessageKind && !hasSetDefaultValue {
-			b, err := protojson.Marshal(val.(proto.Message))
+		if !hasSetDefaultValue {
+			val, err = EncodeSQLArg(field, dbdialect, val)
 			if err != nil {
-				return "", nil, fmt.Errorf("marshal msg:%s field:%s msg to json err: %s", msgDesc.Name(), fieldName, err.Error())
+				return "", nil, fmt.Errorf("encode sql arg msg:%s field:%s err: %w", msgDesc.Name(), fieldName, err)
 			}
-			val = string(b)
 		}
 
 		sqlVals = append(sqlVals, val)
@@ -405,7 +402,10 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 		} else if isValZero && hasDefaultValue {
 			val = fieldPdb.DefaultValue2SQLArgs()
 		}
-
+		val, err = EncodeSQLArg(field, dbdialect, val)
+		if err != nil {
+			return "", nil, fmt.Errorf("encode sql arg msg:%s field:%s err: %w", msgDesc.Name(), fieldName, err)
+		}
 		sqlVals = append(sqlVals, val)
 	}
 

@@ -169,6 +169,18 @@ enum WhereOperator {
   // equal
   WOP_EQ = 6;
 
+  // array contains element
+  WOP_CONTAINS = 7;
+  // array overlaps given array
+  WOP_OVERLAP = 8;
+  // array contains all elements of given array
+  WOP_CONTAINS_ALL = 9;
+  // length greater than
+  WOP_LEN_GT = 10;
+  WOP_LEN_GTE = 11;
+  WOP_LEN_LT = 12;
+  WOP_LEN_LTE = 13;
+
 
 }
 

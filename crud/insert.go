@@ -6,8 +6,6 @@ import (
 	"strconv"
 	"strings"
 
-	"google.golang.org/protobuf/encoding/protojson"
-
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/protosql"
@@ -180,12 +178,11 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 			val = fieldPdb.DefaultValue2SQLArgs()
 			hasSetDefaultValue = true
 		}
-		if field.Kind() == protoreflect.MessageKind && !hasSetDefaultValue {
-			b, err := protojson.Marshal(val.(proto.Message))
+		if !hasSetDefaultValue {
+			val, err = EncodeSQLArg(field, dbdialect, val)
 			if err != nil {
-				return "", nil, fmt.Errorf("marshal msg:%s field:%s msg to json err: %s", msgDesc.Name(), fieldName, err.Error())
+				return "", nil, fmt.Errorf("encode sql arg msg:%s field:%s err: %w", msgDesc.Name(), fieldName, err)
 			}
-			val = string(b)
 		}
 		vals = append(vals, val)
 	}

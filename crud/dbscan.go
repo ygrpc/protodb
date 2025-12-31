@@ -2,13 +2,19 @@ package crud
 
 import (
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"reflect"
+	"strconv"
+	"strings"
+
 	"github.com/ygrpc/protodb/msgstore"
 	"github.com/ygrpc/protodb/pdbutil"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
-	"strings"
+	"google.golang.org/protobuf/types/dynamicpb"
 )
 
 // interface FieldProtoMsg
@@ -106,6 +112,9 @@ func Val2ProtoMsgByJson(msg proto.Message, value interface{}) error {
 
 func SetProtoMsgField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor, fieldVal interface{}) error {
 	fieldName := fieldDesc.TextName()
+	if fieldDesc.IsList() {
+		return setProtoMsgListField(msg, fieldDesc, fieldVal)
+	}
 	if fieldDesc.Kind() == protoreflect.MessageKind {
 		// get filed proto msg by filedprotomsg interface
 		filedProtoMsg, ok := msg.(FieldProtoMsg)
@@ -138,6 +147,311 @@ func SetProtoMsgField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor,
 
 	}
 	return pdbutil.SetField(msg, fieldName, fieldVal)
+}
+
+func unwrapScanVal(v any) any {
+	switch x := v.(type) {
+	case *any:
+		if x == nil {
+			return nil
+		}
+		return unwrapScanVal(*x)
+	case *string:
+		if x == nil {
+			return nil
+		}
+		return *x
+	case *[]byte:
+		if x == nil {
+			return nil
+		}
+		return *x
+	default:
+		return v
+	}
+}
+
+func setProtoMsgListField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor, fieldVal any) error {
+	v := unwrapScanVal(fieldVal)
+	pm := msg.ProtoReflect()
+	list := pm.Mutable(fieldDesc).List()
+	list.Truncate(0)
+	if v == nil {
+		return nil
+	}
+
+	if fieldDesc.Kind() == protoreflect.MessageKind {
+		var b []byte
+		switch x := v.(type) {
+		case string:
+			b = []byte(x)
+		case []byte:
+			b = x
+		default:
+			return fmt.Errorf("repeated message scan expects json string/bytes, got %T", v)
+		}
+		if len(b) == 0 {
+			return nil
+		}
+		var raws []json.RawMessage
+		if err := json.Unmarshal(b, &raws); err != nil {
+			return err
+		}
+		unmarshalOpts := protojson.UnmarshalOptions{DiscardUnknown: true}
+		for _, raw := range raws {
+			elemMsg := dynamicpb.NewMessage(fieldDesc.Message())
+			if err := unmarshalOpts.Unmarshal(raw, elemMsg); err != nil {
+				return err
+			}
+			list.Append(protoreflect.ValueOfMessage(elemMsg.ProtoReflect()))
+		}
+		return nil
+	}
+
+	switch x := v.(type) {
+	case string:
+		return appendScalarListFromEncodedString(list, fieldDesc.Kind(), x)
+	case []byte:
+		return appendScalarListFromEncodedString(list, fieldDesc.Kind(), string(x))
+	default:
+		val := reflect.ValueOf(v)
+		if val.IsValid() && val.Kind() == reflect.Slice {
+			for i := 0; i < val.Len(); i++ {
+				e, err := scalarElemToProtoreflectValue(fieldDesc.Kind(), val.Index(i).Interface())
+				if err != nil {
+					return err
+				}
+				list.Append(e)
+			}
+			return nil
+		}
+		return fmt.Errorf("repeated scalar scan expects slice or encoded string, got %T", v)
+	}
+}
+
+func appendScalarListFromEncodedString(list protoreflect.List, kind protoreflect.Kind, s string) error {
+	ss := strings.TrimSpace(s)
+	if ss == "" {
+		return nil
+	}
+	if strings.HasPrefix(ss, "[") {
+		var arr []any
+		if err := json.Unmarshal([]byte(ss), &arr); err != nil {
+			return err
+		}
+		for _, item := range arr {
+			pv, err := scalarElemToProtoreflectValue(kind, item)
+			if err != nil {
+				return err
+			}
+			list.Append(pv)
+		}
+		return nil
+	}
+	if strings.HasPrefix(ss, "{") {
+		elems, err := parsePGArrayLiteral(ss)
+		if err != nil {
+			return err
+		}
+		for _, item := range elems {
+			pv, err := scalarElemToProtoreflectValue(kind, item)
+			if err != nil {
+				return err
+			}
+			list.Append(pv)
+		}
+		return nil
+	}
+	return fmt.Errorf("unsupported encoded list value: %q", ss)
+}
+
+func scalarElemToProtoreflectValue(kind protoreflect.Kind, v any) (protoreflect.Value, error) {
+	switch kind {
+	case protoreflect.BoolKind:
+		switch x := v.(type) {
+		case bool:
+			return protoreflect.ValueOfBool(x), nil
+		case int64:
+			return protoreflect.ValueOfBool(x != 0), nil
+		case float64:
+			return protoreflect.ValueOfBool(x != 0), nil
+		case string:
+			b, err := strconv.ParseBool(strings.ToLower(x))
+			if err != nil {
+				if x == "1" {
+					return protoreflect.ValueOfBool(true), nil
+				}
+				if x == "0" {
+					return protoreflect.ValueOfBool(false), nil
+				}
+				return protoreflect.Value{}, err
+			}
+			return protoreflect.ValueOfBool(b), nil
+		default:
+			return protoreflect.Value{}, fmt.Errorf("bool elem unsupported type %T", v)
+		}
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		i, err := toInt64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfInt32(int32(i)), nil
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		i, err := toInt64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfInt64(i), nil
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		i, err := toInt64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfUint32(uint32(i)), nil
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		i, err := toInt64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfUint64(uint64(i)), nil
+	case protoreflect.FloatKind:
+		f, err := toFloat64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfFloat32(float32(f)), nil
+	case protoreflect.DoubleKind:
+		f, err := toFloat64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfFloat64(f), nil
+	case protoreflect.StringKind:
+		switch x := v.(type) {
+		case string:
+			return protoreflect.ValueOfString(x), nil
+		default:
+			return protoreflect.ValueOfString(fmt.Sprint(v)), nil
+		}
+	case protoreflect.BytesKind:
+		switch x := v.(type) {
+		case []byte:
+			return protoreflect.ValueOfBytes(x), nil
+		case string:
+			b, err := base64.StdEncoding.DecodeString(x)
+			if err != nil {
+				return protoreflect.Value{}, err
+			}
+			return protoreflect.ValueOfBytes(b), nil
+		default:
+			return protoreflect.Value{}, fmt.Errorf("bytes elem unsupported type %T", v)
+		}
+	case protoreflect.EnumKind:
+		i, err := toInt64(v)
+		if err != nil {
+			return protoreflect.Value{}, err
+		}
+		return protoreflect.ValueOfEnum(protoreflect.EnumNumber(i)), nil
+	default:
+		return protoreflect.Value{}, fmt.Errorf("unsupported list kind %v", kind)
+	}
+}
+
+func toInt64(v any) (int64, error) {
+	switch x := v.(type) {
+	case int:
+		return int64(x), nil
+	case int32:
+		return int64(x), nil
+	case int64:
+		return x, nil
+	case uint32:
+		return int64(x), nil
+	case uint64:
+		return int64(x), nil
+	case float64:
+		return int64(x), nil
+	case string:
+		if x == "" {
+			return 0, nil
+		}
+		i, err := strconv.ParseInt(x, 10, 64)
+		if err == nil {
+			return i, nil
+		}
+		u, err2 := strconv.ParseUint(x, 10, 64)
+		if err2 == nil {
+			return int64(u), nil
+		}
+		return 0, err
+	default:
+		return 0, fmt.Errorf("cannot convert %T to int64", v)
+	}
+}
+
+func toFloat64(v any) (float64, error) {
+	switch x := v.(type) {
+	case float32:
+		return float64(x), nil
+	case float64:
+		return x, nil
+	case int64:
+		return float64(x), nil
+	case int:
+		return float64(x), nil
+	case string:
+		if x == "" {
+			return 0, nil
+		}
+		return strconv.ParseFloat(x, 64)
+	default:
+		return 0, fmt.Errorf("cannot convert %T to float64", v)
+	}
+}
+
+func parsePGArrayLiteral(s string) ([]string, error) {
+	ss := strings.TrimSpace(s)
+	if len(ss) < 2 || ss[0] != '{' || ss[len(ss)-1] != '}' {
+		return nil, fmt.Errorf("invalid pg array literal: %q", s)
+	}
+	ss = ss[1 : len(ss)-1]
+	if ss == "" {
+		return []string{}, nil
+	}
+	out := make([]string, 0)
+	cur := strings.Builder{}
+	inQuotes := false
+	escape := false
+	for i := 0; i < len(ss); i++ {
+		c := ss[i]
+		if escape {
+			cur.WriteByte(c)
+			escape = false
+			continue
+		}
+		if c == '\\' {
+			escape = true
+			continue
+		}
+		if c == '"' {
+			inQuotes = !inQuotes
+			continue
+		}
+		if c == ',' && !inQuotes {
+			out = append(out, cur.String())
+			cur.Reset()
+			continue
+		}
+		cur.WriteByte(c)
+	}
+	out = append(out, cur.String())
+	for i := range out {
+		out[i] = strings.TrimSpace(out[i])
+		if strings.EqualFold(out[i], "NULL") {
+			out[i] = ""
+		}
+	}
+	return out, nil
 }
 
 // DbScan2ProtoMsgx2 scan db rows to proto message(oldMsg and newMsg), the proto msg has no nested message
