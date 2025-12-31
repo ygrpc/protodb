@@ -79,6 +79,8 @@ protoc --proto_path=. --go_out=paths=source_relative:. \
 
 在您的 Go 代码中实现 `ProtoDbSrv` 服务。你需要提供两个核心的回调函数：`GetDb` (获取数据库连接) 和 `Permission` (权限检查)。
 
+注意：`crud` 包仅提供 ORM/SQL 能力（如 `DbInsert`/`DbUpdate` 等）。RPC Handler、广播器以及相关的权限回调类型位于 `service` 包。
+
 ```go
 package main
 
@@ -89,7 +91,6 @@ import (
     "github.com/ygrpc/protodb"
     "github.com/ygrpc/protodb/msgstore"
     "github.com/ygrpc/protodb/service"
-    "github.com/ygrpc/protodb/crud"
     _ "github.com/lib/pq" // Postgres 驱动
 )
 
@@ -126,8 +127,8 @@ func main() {
     // 5. 创建并启动服务
     srv := service.NewTconnectrpcProtoDbSrvHandlerImpl(
         fnGetDb,
-        map[string]crud.TfnProtodbCrudPermission{"User": fnCrudPerm},     // 针对 User 表的写权限
-        map[string]crud.TfnTableQueryPermission{"User": fnQueryPerm},   // 针对 User 表的读权限
+        map[string]service.TfnProtodbCrudPermission{"User": fnCrudPerm},     // 针对 User 表的写权限
+        map[string]service.TfnTableQueryPermission{"User": fnQueryPerm},   // 针对 User 表的读权限
     )
     
     mux := http.NewServeMux()

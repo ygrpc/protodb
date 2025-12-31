@@ -7,34 +7,33 @@ import (
 
 	"connectrpc.com/connect"
 	"github.com/ygrpc/protodb"
-	"github.com/ygrpc/protodb/crud"
 )
 
 type TconnectrpcProtoDbSrvHandlerImpl struct {
 	protodb.UnimplementedProtoDbSrvHandler
-	FnGetDb crud.TfnProtodbGetDb
+	FnGetDb TfnProtodbGetDb
 
 	// proto.message name => fn
 	// must set for every protodb message, if no fn for a message, set to nil
-	fnCrudPermissionMap map[string]crud.TfnProtodbCrudPermission
+	fnCrudPermissionMap map[string]TfnProtodbCrudPermission
 
 	// table name => fn
 	// must set for every table, if no fn for a table, set to nil
-	fnTableQueryPermissionMap map[string]crud.TfnTableQueryPermission
+	fnTableQueryPermissionMap map[string]TfnTableQueryPermission
 }
 
 // NewTconnectrpcProtoDbSrvHandlerImpl create new ProtoDbSrvHandler impl in connectrpc
-func NewTconnectrpcProtoDbSrvHandlerImpl(fnGetCrudDb crud.TfnProtodbGetDb, fnCrudPermission map[string]crud.TfnProtodbCrudPermission,
-	fnTableQueryPermission map[string]crud.TfnTableQueryPermission) *TconnectrpcProtoDbSrvHandlerImpl {
+func NewTconnectrpcProtoDbSrvHandlerImpl(fnGetCrudDb TfnProtodbGetDb, fnCrudPermission map[string]TfnProtodbCrudPermission,
+	fnTableQueryPermission map[string]TfnTableQueryPermission) *TconnectrpcProtoDbSrvHandlerImpl {
 	// set default value
 	if fnGetCrudDb == nil {
-		fnGetCrudDb = crud.FnProtodbGetDbEmpty
+		fnGetCrudDb = FnProtodbGetDbEmpty
 	}
 	if fnCrudPermission == nil {
-		fnCrudPermission = make(map[string]crud.TfnProtodbCrudPermission)
+		fnCrudPermission = make(map[string]TfnProtodbCrudPermission)
 	}
 	if fnTableQueryPermission == nil {
-		fnTableQueryPermission = make(map[string]crud.TfnTableQueryPermission)
+		fnTableQueryPermission = make(map[string]TfnTableQueryPermission)
 	}
 	return &TconnectrpcProtoDbSrvHandlerImpl{
 		FnGetDb:                   fnGetCrudDb,
@@ -61,7 +60,7 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 		return nil, connecterr
 	}
 
-	respCrud, err := crud.Crud(ctx, meta, CrudMsg, this.FnGetDb, fnCrudPermission)
+	respCrud, err := HandleCrud(ctx, meta, CrudMsg, this.FnGetDb, fnCrudPermission)
 	if err != nil {
 		connecterr := connect.NewError(
 			connect.CodeUnknown,
@@ -133,7 +132,7 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) TableQuery(ctx context.Context, re
 		}
 		return ss.Send(resp)
 	}
-	return crud.TableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, fnSend)
+	return HandleTableQuery(ctx, meta, TableQueryReq, this.FnGetDb, permissionFn, fnSend)
 }
 
 func (this *TconnectrpcProtoDbSrvHandlerImpl) Query(ctx context.Context, req *connect.Request[protodb.QueryReq], ss *connect.ServerStream[protodb.QueryResp]) error {
@@ -160,6 +159,6 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Query(ctx context.Context, req *co
 		}
 		return ss.Send(resp)
 	}
-	return crud.Query(ctx, req.Header(), req.Msg, this.FnGetDb, fnSend)
+	return HandleQuery(ctx, req.Header(), req.Msg, this.FnGetDb, fnSend)
 
 }
