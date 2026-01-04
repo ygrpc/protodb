@@ -58,6 +58,24 @@ func TryAddQuote2DefaultValue(fieldType protoreflect.Kind, defaultValue string) 
 
 }
 
+func normalizeUserDefaultValue(defaultValue string, dialect sqldb.TDBDialect, sqlTypeStr string) string {
+	trimmedDefaultValue := strings.TrimSpace(defaultValue)
+	if strings.HasPrefix(trimmedDefaultValue, "'") || strings.HasSuffix(trimmedDefaultValue, "'") {
+		return defaultValue
+	}
+	if strings.HasSuffix(trimmedDefaultValue, ")") {
+		return defaultValue
+	}
+	if strings.Contains(trimmedDefaultValue, "::") {
+		return defaultValue
+	}
+	val := TryAddQuote2DefaultValue(protoreflect.StringKind, defaultValue)
+	if dialect == sqldb.Postgres && len(sqlTypeStr) > 0 {
+		val += "::" + sqlTypeStr
+	}
+	return val
+}
+
 // checkRefference if check reference table
 // withComment if add comment for sql
 // builtInitSqlMap is a map to store all init sql, user should use a global map for speed up(no need generate init sql again)
@@ -180,8 +198,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		}
 
 		sqlStr += fieldname + " "
-
-		sqlStr += getSqlTypeStr(fieldMsg, fieldPdb, dbdialect)
+		sqlTypeStr := getSqlTypeStr(fieldMsg, fieldPdb, dbdialect)
+		sqlStr += sqlTypeStr
 
 		if fieldPdb.IsPrimary() {
 
@@ -210,26 +228,33 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		}
 
 		if fieldDesc.IsList() {
-			if dbdialect == sqldb.Postgres {
-				if fieldDesc.Kind() == protoreflect.MessageKind {
-					sqlStr += protosql.DEFAULT + "'[]'::jsonb"
-				} else {
-					elemType := protodb.GetProtoDBType(fieldDesc.Kind(), sqldb.Postgres)
-					sqlStr += protosql.DEFAULT + "'{}'::" + elemType + "[]"
-				}
+			if len(fieldPdb.DefaultValue) > 0 {
+				sqlStr += protosql.DEFAULT + normalizeUserDefaultValue(fieldPdb.DefaultValue, dbdialect, sqlTypeStr)
 			} else {
-				sqlStr += protosql.DEFAULT + "'[]'"
+				if dbdialect == sqldb.Postgres {
+					if fieldDesc.Kind() == protoreflect.MessageKind || sqlTypeStr == "jsonb" {
+						sqlStr += protosql.DEFAULT + "'[]'::" + sqlTypeStr
+					} else {
+						sqlStr += protosql.DEFAULT + "'{}'::" + sqlTypeStr
+					}
+				} else {
+					sqlStr += protosql.DEFAULT + "'[]'"
+				}
 			}
 		} else if fieldDesc.IsMap() {
-			switch dbdialect {
-			case sqldb.Postgres:
-				sqlStr += protosql.DEFAULT + "'{}'::jsonb"
-			case sqldb.Mysql:
-				sqlStr += protosql.DEFAULT + "(CAST('{}' AS JSON))"
-			case sqldb.SQLite:
-				sqlStr += protosql.DEFAULT + "'{}'"
-			default:
-				sqlStr += protosql.DEFAULT + "'{}'"
+			if len(fieldPdb.DefaultValue) > 0 {
+				sqlStr += protosql.DEFAULT + normalizeUserDefaultValue(fieldPdb.DefaultValue, dbdialect, sqlTypeStr)
+			} else {
+				switch dbdialect {
+				case sqldb.Postgres:
+					sqlStr += protosql.DEFAULT + "'{}'::" + sqlTypeStr
+				case sqldb.Mysql:
+					sqlStr += protosql.DEFAULT + "(CAST('{}' AS JSON))"
+				case sqldb.SQLite:
+					sqlStr += protosql.DEFAULT + "'{}'"
+				default:
+					sqlStr += protosql.DEFAULT + "'{}'"
+				}
 			}
 		} else if len(fieldPdb.DefaultValue) > 0 {
 			sqlStr += protosql.DEFAULT +
@@ -384,7 +409,11 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBField, dialect sqldb.TDBDialect) string {
 	if fieldMsg.IsMap() {
 		if len(fieldPdb.DbTypeStr) > 0 || fieldPdb.DbType != protodb.FieldDbType_AutoMatch {
-			fmt.Println("warn: map field ignore DbType/DbTypeStr:", fieldMsg.FullName())
+			pdbdbtype := fieldPdb.PdbDbTypeStr(fieldMsg, dialect)
+			if len(pdbdbtype) > 0 {
+				fmt.Println("info: map field use user DbType/DbTypeStr:", fieldMsg.FullName(), "->", pdbdbtype)
+				return pdbdbtype
+			}
 		}
 		switch dialect {
 		case sqldb.Postgres:
@@ -399,7 +428,11 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 	}
 	if fieldMsg.IsList() {
 		if len(fieldPdb.DbTypeStr) > 0 || fieldPdb.DbType != protodb.FieldDbType_AutoMatch {
-			fmt.Println("warn: repeated field ignore DbType/DbTypeStr:", fieldMsg.FullName())
+			pdbdbtype := fieldPdb.PdbDbTypeStr(fieldMsg, dialect)
+			if len(pdbdbtype) > 0 {
+				fmt.Println("info: repeated field use user DbType/DbTypeStr:", fieldMsg.FullName(), "->", pdbdbtype)
+				return pdbdbtype
+			}
 		}
 		switch dialect {
 		case sqldb.Postgres:
@@ -496,7 +529,7 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 }
 
 func getPostgresqlIndex(db *sql.DB, schemaName string, idxName string) (indexColumns map[string]struct{}, err error) {
-	query := fmt.Sprintf("select indexdef from pg_indexes where schemaname='%s' and indexname='%s' limit 1;", schemaName, idxName)
+	query := "select indexdef from pg_indexes where schemaname=$1 and indexname=$2 limit 1;"
 	var indexdef string
 	indexColumns = make(map[string]struct{}, 0)
 
@@ -620,13 +653,32 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 				dbtableName, fieldName, sqlType)
 
 			// Add constraints
-			if pdb.NotNull {
+			if fieldDesc.IsMap() {
 				alterStmt += " NOT NULL "
-			}
-
-			if len(pdb.DefaultValue) > 0 {
-				alterStmt += " DEFAULT " +
-					TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, dbdialect, sqlType)
+				} else {
+					alterStmt += " DEFAULT '{}'::" + sqlType
+				}
+			} else if fieldDesc.IsList() {
+				alterStmt += " NOT NULL "
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, dbdialect, sqlType)
+				} else {
+					if fieldDesc.Kind() == protoreflect.MessageKind || sqlType == "jsonb" {
+						alterStmt += " DEFAULT '[]'::" + sqlType
+					} else {
+						alterStmt += " DEFAULT '{}'::" + sqlType
+					}
+				}
+			} else {
+				if pdb.NotNull {
+					alterStmt += " NOT NULL "
+				}
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " +
+						TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
+				}
 			}
 
 			if len(pdb.Reference) > 0 {
@@ -862,12 +914,27 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 				dbtableName, fieldName, sqlType)
 
 			// Add constraints
-			if pdb.NotNull {
+			if fieldDesc.IsMap() {
 				alterStmt += " NOT NULL "
-			}
-
-			if len(pdb.DefaultValue) > 0 {
-				alterStmt += " DEFAULT " + TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, sqldb.SQLite, sqlType)
+				} else {
+					alterStmt += " DEFAULT '{}'"
+				}
+			} else if fieldDesc.IsList() {
+				alterStmt += " NOT NULL "
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, sqldb.SQLite, sqlType)
+				} else {
+					alterStmt += " DEFAULT '[]'"
+				}
+			} else {
+				if pdb.NotNull {
+					alterStmt += " NOT NULL "
+				}
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
+				}
 			}
 
 			if len(pdb.Reference) > 0 {
