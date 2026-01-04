@@ -237,6 +237,8 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 					} else {
 						sqlStr += protosql.DEFAULT + "'{}'::" + sqlTypeStr
 					}
+				} else if dbdialect == sqldb.Mysql {
+					sqlStr += protosql.DEFAULT + "(CAST('[]' AS JSON))"
 				} else {
 					sqlStr += protosql.DEFAULT + "'[]'"
 				}
@@ -440,6 +442,8 @@ func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBF
 				return "jsonb"
 			}
 			return protodb.GetProtoDBType(fieldMsg.Kind(), sqldb.Postgres) + "[]"
+		case sqldb.Mysql:
+			return "json"
 		case sqldb.SQLite:
 			return "text"
 		default:
