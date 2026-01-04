@@ -255,6 +255,8 @@ const (
 	WhereOperator_WOP_LEN_GTE WhereOperator = 11
 	WhereOperator_WOP_LEN_LT  WhereOperator = 12
 	WhereOperator_WOP_LEN_LTE WhereOperator = 13
+	// map has key
+	WhereOperator_WOP_HAS_KEY WhereOperator = 14
 )
 
 // Enum value maps for WhereOperator.
@@ -274,6 +276,7 @@ var (
 		11: "WOP_LEN_GTE",
 		12: "WOP_LEN_LT",
 		13: "WOP_LEN_LTE",
+		14: "WOP_HAS_KEY",
 	}
 	WhereOperator_value = map[string]int32{
 		"WOP_UNKNOWN":      0,
@@ -290,6 +293,7 @@ var (
 		"WOP_LEN_GTE":      11,
 		"WOP_LEN_LT":       12,
 		"WOP_LEN_LTE":      13,
+		"WOP_HAS_KEY":      14,
 	}
 )
 
@@ -1398,7 +1402,7 @@ const file_protodb_proto_rawDesc = "" +
 	"\tDMLResult\x10\x00\x12\n" +
 	"\n" +
 	"\x06NewMsg\x10\x01\x12\x13\n" +
-	"\x0fOldMsgAndNewMsg\x10\x02*\xe7\x01\n" +
+	"\x0fOldMsgAndNewMsg\x10\x02*\xf8\x01\n" +
 	"\rWhereOperator\x12\x0f\n" +
 	"\vWOP_UNKNOWN\x10\x00\x12\n" +
 	"\n" +
@@ -1419,7 +1423,8 @@ const file_protodb_proto_rawDesc = "" +
 	"\vWOP_LEN_GTE\x10\v\x12\x0e\n" +
 	"\n" +
 	"WOP_LEN_LT\x10\f\x12\x0f\n" +
-	"\vWOP_LEN_LTE\x10\r2\xad\x01\n" +
+	"\vWOP_LEN_LTE\x10\r\x12\x0f\n" +
+	"\vWOP_HAS_KEY\x10\x0e2\xad\x01\n" +
 	"\n" +
 	"ProtoDbSrv\x12-\n" +
 	"\x04Crud\x12\x10.protodb.CrudReq\x1a\x11.protodb.CrudResp\"\x00\x12<\n" +

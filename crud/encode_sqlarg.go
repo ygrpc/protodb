@@ -22,6 +22,57 @@ func EncodeSQLArg(fieldDesc protoreflect.FieldDescriptor, dialect sqldb.TDBDiale
 		}
 	}
 
+	if fieldDesc.IsMap() {
+		v := reflect.ValueOf(goValue)
+		if !v.IsValid() {
+			return "{}", nil
+		}
+		if v.Kind() != reflect.Map {
+			return nil, fmt.Errorf("map field value must be map, got %T", goValue)
+		}
+		if v.IsNil() {
+			v = reflect.MakeMap(v.Type())
+		}
+
+		out := make(map[string]json.RawMessage, v.Len())
+		valDesc := fieldDesc.MapValue()
+		for _, k := range v.MapKeys() {
+			keyStr := fmt.Sprint(k.Interface())
+			mv := v.MapIndex(k)
+			if !mv.IsValid() {
+				continue
+			}
+			if mv.Kind() == reflect.Pointer && mv.IsNil() {
+				continue
+			}
+
+			if valDesc.Kind() == protoreflect.MessageKind {
+				pm, ok := mv.Interface().(proto.Message)
+				if !ok {
+					return nil, fmt.Errorf("map message value must be proto.Message, got %T", mv.Interface())
+				}
+				b, err := protojson.Marshal(pm)
+				if err != nil {
+					return nil, err
+				}
+				out[keyStr] = json.RawMessage(b)
+				continue
+			}
+
+			b, err := json.Marshal(mv.Interface())
+			if err != nil {
+				return nil, err
+			}
+			out[keyStr] = json.RawMessage(b)
+		}
+
+		b, err := json.Marshal(out)
+		if err != nil {
+			return nil, err
+		}
+		return string(b), nil
+	}
+
 	if fieldDesc.IsList() {
 		v := reflect.ValueOf(goValue)
 		if v.IsValid() && v.Kind() == reflect.Slice && v.IsNil() {

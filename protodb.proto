@@ -181,6 +181,9 @@ enum WhereOperator {
   WOP_LEN_LT = 12;
   WOP_LEN_LTE = 13;
 
+  // map has key
+  WOP_HAS_KEY = 14;
+
 
 }
 

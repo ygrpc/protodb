@@ -156,6 +156,47 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 
 func buildWhere2Condition(dialect sqldb.TDBDialect, placeholder protosql.SQLPlaceholder, paraNo int, fieldDesc protoreflect.FieldDescriptor, op protodb.WhereOperator, valueStr string) (cond string, args []any, argInc int, err error) {
 	fieldName := fieldDesc.TextName()
+	if fieldDesc.IsMap() {
+		switch dialect {
+		case sqldb.Postgres:
+			switch op {
+			case protodb.WhereOperator_WOP_HAS_KEY:
+				cond = fieldName + " ? " + buildPlaceholder(placeholder, paraNo)
+				return cond, []any{valueStr}, 1, nil
+			case protodb.WhereOperator_WOP_CONTAINS:
+				cond = fieldName + " @> " + buildPlaceholder(placeholder, paraNo) + "::jsonb"
+				return cond, []any{valueStr}, 1, nil
+			default:
+				return "", nil, 0, fmt.Errorf("unsupported operator %v for map field %s", op, fieldName)
+			}
+		case sqldb.Mysql:
+			switch op {
+			case protodb.WhereOperator_WOP_HAS_KEY:
+				// NOTE: assumes map keys can be addressed as $.<key>.
+				cond = "JSON_CONTAINS_PATH(" + fieldName + ", 'one', CONCAT('$.' , " + buildPlaceholder(placeholder, paraNo) + "))"
+				return cond, []any{valueStr}, 1, nil
+			case protodb.WhereOperator_WOP_CONTAINS:
+				cond = "JSON_CONTAINS(" + fieldName + ", CAST(" + buildPlaceholder(placeholder, paraNo) + " AS JSON))"
+				return cond, []any{valueStr}, 1, nil
+			default:
+				return "", nil, 0, fmt.Errorf("unsupported operator %v for map field %s", op, fieldName)
+			}
+		case sqldb.SQLite:
+			switch op {
+			case protodb.WhereOperator_WOP_HAS_KEY:
+				cond = "EXISTS (SELECT 1 FROM json_each(" + fieldName + ") WHERE key = " + buildPlaceholder(placeholder, paraNo) + ")"
+				return cond, []any{valueStr}, 1, nil
+			case protodb.WhereOperator_WOP_CONTAINS:
+				// valueStr must be a JSON object string
+				cond = "NOT EXISTS (SELECT 1 FROM json_each(" + buildPlaceholder(placeholder, paraNo) + ") b WHERE NOT EXISTS (SELECT 1 FROM json_each(" + fieldName + ") a WHERE a.key = b.key AND a.value = b.value))"
+				return cond, []any{valueStr}, 1, nil
+			default:
+				return "", nil, 0, fmt.Errorf("unsupported operator %v for sqlite map field %s", op, fieldName)
+			}
+		default:
+			return "", nil, 0, fmt.Errorf("unsupported dialect %v", dialect)
+		}
+	}
 	if !fieldDesc.IsList() {
 		// keep backward compatibility: treat value as string for scalar ops
 		switch op {

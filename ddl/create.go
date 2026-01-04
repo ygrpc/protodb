@@ -186,7 +186,9 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 		if fieldPdb.IsPrimary() {
 
 		} else {
-			if fieldDesc.IsList() {
+			if fieldDesc.IsMap() {
+				sqlStr += protosql.NOT_NULL
+			} else if fieldDesc.IsList() {
 				sqlStr += protosql.NOT_NULL
 			} else {
 				if fieldPdb.NotNull {
@@ -217,6 +219,17 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 				}
 			} else {
 				sqlStr += protosql.DEFAULT + "'[]'"
+			}
+		} else if fieldDesc.IsMap() {
+			switch dbdialect {
+			case sqldb.Postgres:
+				sqlStr += protosql.DEFAULT + "'{}'::jsonb"
+			case sqldb.Mysql:
+				sqlStr += protosql.DEFAULT + "(CAST('{}' AS JSON))"
+			case sqldb.SQLite:
+				sqlStr += protosql.DEFAULT + "'{}'"
+			default:
+				sqlStr += protosql.DEFAULT + "'{}'"
 			}
 		} else if len(fieldPdb.DefaultValue) > 0 {
 			sqlStr += protosql.DEFAULT +
@@ -369,6 +382,21 @@ func addRefferenceDepSqlForCreate(item *TDbTableInitSql, reference string, db *s
 }
 
 func getSqlTypeStr(fieldMsg protoreflect.FieldDescriptor, fieldPdb *protodb.PDBField, dialect sqldb.TDBDialect) string {
+	if fieldMsg.IsMap() {
+		if len(fieldPdb.DbTypeStr) > 0 || fieldPdb.DbType != protodb.FieldDbType_AutoMatch {
+			fmt.Println("warn: map field ignore DbType/DbTypeStr:", fieldMsg.FullName())
+		}
+		switch dialect {
+		case sqldb.Postgres:
+			return "jsonb"
+		case sqldb.Mysql:
+			return "json"
+		case sqldb.SQLite:
+			return "text"
+		default:
+			return "text"
+		}
+	}
 	if fieldMsg.IsList() {
 		if len(fieldPdb.DbTypeStr) > 0 || fieldPdb.DbType != protodb.FieldDbType_AutoMatch {
 			fmt.Println("warn: repeated field ignore DbType/DbTypeStr:", fieldMsg.FullName())

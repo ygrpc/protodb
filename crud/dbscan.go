@@ -1,6 +1,7 @@
 package crud
 
 import (
+	"bytes"
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
@@ -112,6 +113,9 @@ func Val2ProtoMsgByJson(msg proto.Message, value interface{}) error {
 
 func SetProtoMsgField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor, fieldVal interface{}) error {
 	fieldName := fieldDesc.TextName()
+	if fieldDesc.IsMap() {
+		return setProtoMsgMapField(msg, fieldDesc, fieldVal)
+	}
 	if fieldDesc.IsList() {
 		return setProtoMsgListField(msg, fieldDesc, fieldVal)
 	}
@@ -168,6 +172,132 @@ func unwrapScanVal(v any) any {
 		return *x
 	default:
 		return v
+	}
+}
+
+func setProtoMsgMapField(msg proto.Message, fieldDesc protoreflect.FieldDescriptor, fieldVal any) error {
+	v := unwrapScanVal(fieldVal)
+	pm := msg.ProtoReflect()
+	m := pm.Mutable(fieldDesc).Map()
+
+	// clear existing keys
+	keys := make([]protoreflect.MapKey, 0, m.Len())
+	m.Range(func(k protoreflect.MapKey, _ protoreflect.Value) bool {
+		keys = append(keys, k)
+		return true
+	})
+	for _, k := range keys {
+		m.Clear(k)
+	}
+
+	if v == nil {
+		return nil
+	}
+
+	var b []byte
+	switch x := v.(type) {
+	case string:
+		b = []byte(x)
+	case []byte:
+		b = x
+	default:
+		return fmt.Errorf("map scan expects json string/bytes, got %T", v)
+	}
+	if len(bytes.TrimSpace(b)) == 0 {
+		return nil
+	}
+
+	var raws map[string]json.RawMessage
+	if err := json.Unmarshal(b, &raws); err != nil {
+		return err
+	}
+
+	keyDesc := fieldDesc.MapKey()
+	valDesc := fieldDesc.MapValue()
+	unmarshalOpts := protojson.UnmarshalOptions{DiscardUnknown: true}
+
+	for ks, raw := range raws {
+		mk, err := parseMapKeyFromString(keyDesc.Kind(), ks)
+		if err != nil {
+			return err
+		}
+
+		if valDesc.Kind() == protoreflect.MessageKind {
+			elemMsg := dynamicpb.NewMessage(valDesc.Message())
+			if err := unmarshalOpts.Unmarshal(raw, elemMsg); err != nil {
+				return err
+			}
+			m.Set(mk, protoreflect.ValueOfMessage(elemMsg.ProtoReflect()))
+			continue
+		}
+
+		anyVal, err := decodeJSONAny(raw)
+		if err != nil {
+			return err
+		}
+		pv, err := scalarElemToProtoreflectValue(valDesc.Kind(), anyVal)
+		if err != nil {
+			return err
+		}
+		m.Set(mk, pv)
+	}
+
+	return nil
+}
+
+func decodeJSONAny(raw json.RawMessage) (any, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var v any
+	if err := dec.Decode(&v); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
+func parseMapKeyFromString(kind protoreflect.Kind, s string) (protoreflect.MapKey, error) {
+	ss := strings.TrimSpace(s)
+	switch kind {
+	case protoreflect.StringKind:
+		return protoreflect.ValueOfString(ss).MapKey(), nil
+	case protoreflect.BoolKind:
+		b, err := strconv.ParseBool(strings.ToLower(ss))
+		if err != nil {
+			if ss == "1" {
+				return protoreflect.ValueOfBool(true).MapKey(), nil
+			}
+			if ss == "0" {
+				return protoreflect.ValueOfBool(false).MapKey(), nil
+			}
+			return protoreflect.MapKey{}, err
+		}
+		return protoreflect.ValueOfBool(b).MapKey(), nil
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		i, err := strconv.ParseInt(ss, 10, 32)
+		if err != nil {
+			return protoreflect.MapKey{}, err
+		}
+		return protoreflect.ValueOfInt32(int32(i)).MapKey(), nil
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		i, err := strconv.ParseInt(ss, 10, 64)
+		if err != nil {
+			return protoreflect.MapKey{}, err
+		}
+		return protoreflect.ValueOfInt64(i).MapKey(), nil
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		u, err := strconv.ParseUint(ss, 10, 32)
+		if err != nil {
+			return protoreflect.MapKey{}, err
+		}
+		return protoreflect.ValueOfUint32(uint32(u)).MapKey(), nil
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		u, err := strconv.ParseUint(ss, 10, 64)
+		if err != nil {
+			return protoreflect.MapKey{}, err
+		}
+		return protoreflect.ValueOfUint64(u).MapKey(), nil
+	default:
+		return protoreflect.MapKey{}, fmt.Errorf("unsupported map key kind %v", kind)
 	}
 }
 
@@ -359,6 +489,19 @@ func scalarElemToProtoreflectValue(kind protoreflect.Kind, v any) (protoreflect.
 
 func toInt64(v any) (int64, error) {
 	switch x := v.(type) {
+	case json.Number:
+		if x == "" {
+			return 0, nil
+		}
+		i, err := x.Int64()
+		if err == nil {
+			return i, nil
+		}
+		u, err2 := strconv.ParseUint(x.String(), 10, 64)
+		if err2 == nil {
+			return int64(u), nil
+		}
+		return 0, err
 	case int:
 		return int64(x), nil
 	case int32:
@@ -391,6 +534,11 @@ func toInt64(v any) (int64, error) {
 
 func toFloat64(v any) (float64, error) {
 	switch x := v.(type) {
+	case json.Number:
+		if x == "" {
+			return 0, nil
+		}
+		return x.Float64()
 	case float32:
 		return float64(x), nil
 	case float64:
