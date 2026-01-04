@@ -205,6 +205,70 @@ func main() {
 
 ---
 
+## 🧩 数组与 Map 支持
+
+protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型的存储与查询。
+
+### 1. 数组 (Repeated Fields)
+
+当您在 proto 中定义 `repeated` 字段时，protodb 会自动将其映射为数据库的数组或 JSON 类型。
+
+#### 存储映射
+
+* **PostgreSQL**:
+  * 基础类型 (如 `repeated int32`, `repeated string`) -> 原生数组 (如 `integer[]`, `text[]`)。
+  * 消息类型 (如 `repeated MyMsg`) -> `JSONB` 列 (内容为 JSON 数组)。
+* **MySQL**:
+  * 所有类型 -> `JSON` (存储为 JSON 数组 `[v1, v2, ...]`)。
+* **SQLite**:
+  * 所有类型 -> `TEXT` (存储为 JSON 数组 `[v1, v2, ...]`)。
+
+**注意**: 所有数组字段均强制设为 `NOT NULL`。
+
+* 默认值: Postgres `'{}'`; MySQL `(CAST('[]' AS JSON))`; SQLite `'[]'`.
+
+#### 查询操作 (TableQuery)
+
+支持使用 `Where2` 和以下操作符进行数组查询：
+
+| 操作符 | 说明 | 示例值 (String) | SQL 语义 (Postgres 示例) |
+| :--- | :--- | :--- | :--- |
+| `WOP_CONTAINS` | 包含单个元素 | `"value"` | `col @> ARRAY[value]` |
+| `WOP_OVERLAP` | 数组重叠 (有交集) | JSON `"[v1, v2]"` | `col && ARRAY[v1, v2]` |
+| `WOP_CONTAINS_ALL` | 包含所有元素 | JSON `"[v1, v2]"` | `col @> ARRAY[v1, v2]` |
+| `WOP_LEN_GT` | 长度大于 | `"5"` | `cardinality(col) > 5` |
+| `WOP_LEN_GTE` | 长度大于等于 | `"5"` | `cardinality(col) >= 5` |
+| `WOP_LEN_LT` | 长度小于 | `"5"` | `cardinality(col) < 5` |
+| `WOP_LEN_LTE` | 长度小于等于 | `"5"` | `cardinality(col) <= 5` |
+
+**MySQL 支持**: 使用 `JSON_CONTAINS`, `JSON_OVERLAPS` (8.0.17+), `JSON_LENGTH` 实现上述语义。
+
+### 2. 映射 (Map Fields)
+
+`map<Key, Value>` 字段在所有数据库中均存储为 JSON 对象。
+
+#### 存储映射
+
+* **PostgreSQL**: `JSONB` (推荐创建 **GIN 索引**以获得最佳性能)。
+* **MySQL**: `JSON` (默认值 `(CAST('{}' AS JSON))`)。
+* **SQLite**: `TEXT` (存储为 JSON 对象 `{"k": "v"}`).
+
+**注意**:
+
+* 字段强制设为 `NOT NULL`。
+* 默认值: `{}` (MySQL: `(CAST('{}' AS JSON))`)。
+* **Key 处理**: JSON 对象的 Key 必须是字符串。如果您定义 `map<int32, string>`, 存储时 Key 会转为字符串 (如 `"123": "val"`)，读取时会自动转回 `int32`。
+* **MySQL 限制**: 由于 MySQL `JSON_CONTAINS_PATH` 的路径限制，建议 Map 的 Key 仅使用简单字符串 (字母数字下划线)，避免特殊字符导致查询失败。
+
+#### 查询操作 (TableQuery)
+
+| 操作符 | 说明 | 示例值 (String) | SQL 语义 (Postgres) |
+| :--- | :--- | :--- | :--- |
+| `WOP_HAS_KEY` | 包含特定 Key | `"my_key"` | `col ? 'my_key'` |
+| `WOP_CONTAINS` | JSON 包含 (Subset) | JSON `{"k":"v"}` | `col @> '{"k":"v"}'` |
+
+---
+
 ## 🛠️ 进阶使用
 
 ### 1. 复杂查询 (TableQuery)
