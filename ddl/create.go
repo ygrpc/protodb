@@ -238,7 +238,11 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 						sqlStr += protosql.DEFAULT + "'{}'::" + sqlTypeStr
 					}
 				} else if dbdialect == sqldb.Mysql {
-					sqlStr += protosql.DEFAULT + "(CAST('[]' AS JSON))"
+					if fieldDesc.Kind() == protoreflect.MessageKind || sqlTypeStr == "json" {
+						sqlStr += protosql.DEFAULT + "(CAST('[]' AS JSON))"
+					} else {
+						sqlStr += protosql.DEFAULT + "(CAST('{}' AS JSON))"
+					}
 				} else {
 					sqlStr += protosql.DEFAULT + "'[]'"
 				}
