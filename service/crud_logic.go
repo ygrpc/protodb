@@ -270,7 +270,7 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		fieldNames = nil
 	}
 
-	resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, false)
+	resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, true)
 
 	resultMsgDesc := resultMsg.ProtoReflect().Descriptor()
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, resultMsgDesc.Fields(), true)
@@ -295,7 +295,8 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 	}
 
 	for rows.Next() {
-		resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, true)
+		// reuse resultMsg
+		proto.Reset(resultMsg)
 
 		// Scan row data
 		err = crud.DbScan2ProtoMsg(rows, resultMsg,
@@ -378,7 +379,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 
 	var resultMsg proto.Message
 
-	resultMsg = fnGetResultMsg(false)
+	resultMsg = fnGetResultMsg(true)
 
 	// Determine which fields to scan
 	resultColumns := req.ResultColumnNames
@@ -417,7 +418,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 	}
 
 	for rows.Next() {
-		resultMsg = fnGetResultMsg(true)
+		proto.Reset(resultMsg)
 
 		// Scan row data
 		err = crud.DbScan2ProtoMsg(rows, resultMsg,
