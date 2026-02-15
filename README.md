@@ -185,8 +185,8 @@ func main() {
 | `NoUpdate` | `bool` | 更新记录时忽略此字段 (例如 `create_time`)。 |
 | `NoInsert` | `bool` | 插入记录时忽略此字段 (例如使用数据库自增或默认值)。 |
 | `SerialType` | `int` | 自增类型映射: `2`=SmallSerial, `4`=Serial, `8`=BigSerial。 |
-| `DbType` | `Enum` | 强制指定数据库类型（如 `JSONB`, `UUID`, `INET`, `TEXT`, `BOOL` 等；默认 `AutoMatch`）。 |
-| `DbTypeStr` | `string` | 直接指定自定义 DB 类型字符串（优先级高于 `DbType`）。 |
+| `DbType` | `Enum` | 强制指定数据库类型（如 `JSONB`, `UUID`, `INET`, `TEXT`, `BOOL` 等；默认 `AutoMatch`）。当 `DbTypeStr` 为空时生效。 |
+| `DbTypeStr` | `string` | 直接指定自定义 DB 类型字符串（优先级高于 `DbType`）。对普通字段、`repeated`、`map` 均生效。 |
 | `ZeroAsNull` | `bool` | 插入/更新时，如果 Go 结构体中是零值，则写入数据库 `NULL`。 |
 | `Comment` | `[]string` | 字段注释（在生成 SQL 且开启 comment 输出时生效）。 |
 
@@ -224,6 +224,7 @@ protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型�
   * 所有类型 -> `TEXT` (存储为 JSON 数组 `[v1, v2, ...]`)。
 
 **注意**: 所有数组字段均强制设为 `NOT NULL`，默认值为空集合 (Postgres: 标量 `'{}'`/消息 `'[]'`, MySQL: 标量 `CAST('{}' AS JSON)`/消息 `CAST('[]' AS JSON)`, SQLite: `'[]'`)。
+若数组字段设置了 `DbTypeStr` 或 `DbType`，会优先使用用户指定类型；仅在两者都未指定时才按默认规则推导。
 
 #### 查询操作 (TableQuery)
 
@@ -257,6 +258,7 @@ protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型�
 * **Key 处理**: JSON 对象的 Key 必须是字符串。如果您定义 `map<int32, string>`, 存储时 Key 会转为字符串 (如 `"123": "val"`), 读取时会自动转回 `int32`。
 * **MySQL Key 命名**: 建议仅使用字母、数字和下划线作为 key，以避免路径解析问题。
 * **MySQL 限制**: 由于 MySQL `JSON_CONTAINS_PATH` 的路径限制，建议 Map 的 Key 仅使用简单字符串 (字母数字下划线)，避免特殊字符导致查询失败。
+* **类型优先级**: 若 `map` 字段设置了 `DbTypeStr`/`DbType`，同样优先使用用户指定类型；未指定时使用默认 JSON 类型映射。
 
 #### 查询操作 (TableQuery)
 
@@ -396,3 +398,18 @@ err := RunInTransaction(db, func(tx sqldb.DB) error {
 ## 🤝 贡献
 
 欢迎提交 Issue 和 PR！
+
+---
+
+## ✅ 测试建议
+
+```bash
+# 仅做编译检查（不执行测试逻辑）
+go test ./... -run '^$'
+
+# 全量单测 + 可在无数据库环境运行的测试
+go test ./...
+
+# 仅在有真实 PostgreSQL 时执行集成测试
+PROTO_DB_TEST_PG_DSN='postgres://user:pass@127.0.0.1:5432/db?sslmode=disable' go test ./crud -run TestSearchPgVersionInDB_Integration -v
+```

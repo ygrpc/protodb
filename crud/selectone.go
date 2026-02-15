@@ -96,7 +96,7 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 
 	if len(keyColumns) == 0 {
 		primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
-		keyColumns = make([]string, len(primaryKeyFieldNames))
+		keyColumns = make([]string, 0, len(primaryKeyFieldNames))
 		for fieldName := range primaryKeyFieldNames {
 			keyColumns = append(keyColumns, fieldName)
 		}

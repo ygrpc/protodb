@@ -349,7 +349,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 	// sb.WriteString(protosql.SQL_UPDATE)
 
 	sb.WriteString(" ) UPDATE ")
-	sb.WriteString(tableName)
+	sb.WriteString(dbtableName)
 	sb.WriteString(" new set ")
 	// sb.WriteString(protosql.SQL_SET)
 
@@ -501,12 +501,20 @@ func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32,
 
 		isValZero := pdbutil.IsZeroValue(val)
 		_, hasDefaultValue := fieldPdb.HasDefaultValue()
+		hasSetDefaultValue := false
 		if !fieldPdb.IsNotNull() && (fieldPdb.IsReference() || fieldPdb.IsZeroAsNull()) && isValZero {
 			val = pdbutil.NullValue
+			hasSetDefaultValue = true
 		} else if isValZero && hasDefaultValue {
 			val = fieldPdb.DefaultValue2SQLArgs()
+			hasSetDefaultValue = true
 		}
-
+		if !hasSetDefaultValue {
+			val, err = EncodeSQLArg(field, dbdialect, val)
+			if err != nil {
+				return "", nil, fmt.Errorf("encode sql arg msg:%s field:%s err: %w", msgDesc.Name(), fieldName, err)
+			}
+		}
 		sqlVals = append(sqlVals, val)
 	}
 

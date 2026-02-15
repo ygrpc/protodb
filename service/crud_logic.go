@@ -284,7 +284,7 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		batchSize = 10000
 	}
 
-	respBatchSize := batchSize
+	var respBatchSize int32 = 0
 	respMsgByteSize := 0
 	maxMsgByteSize := 1024 * 1024
 	resp := &protodb.QueryResp{
@@ -407,7 +407,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 	if batchSize > 10000 {
 		batchSize = 10000
 	}
-	respBatchSize := batchSize
+	var respBatchSize int32 = 0
 	respMsgByteSize := 0
 	maxMsgByteSize := 1024 * 1024
 	resp := &protodb.QueryResp{

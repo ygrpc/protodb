@@ -2,62 +2,62 @@ package crud
 
 import (
 	"database/sql"
-	"reflect"
+	"os"
 	"testing"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 )
 
-func TestSearchPgVersionInDB(t *testing.T) {
-	type args struct {
-		dburl string
+func TestSearchPgVersionInDB_Integration(t *testing.T) {
+	dsn := os.Getenv("PROTO_DB_TEST_PG_DSN")
+	if dsn == "" {
+		t.Skip("skip integration test: set PROTO_DB_TEST_PG_DSN")
 	}
-	tests := []struct {
-		name        string
-		args        args
-		wantVersion TpgVersion
-		wantErr     bool
-	}{
-		// TODO: Add test cases.
-		{
-			name: "10.20.30.5:9008",
-			args: args{
-				dburl: "postgres://postgres:20070902@10.20.30.5:9008/postgres?sslmode=disable",
-			},
-			wantVersion: TpgVersion{
-				Major: 12,
-				Minor: 15,
-			},
-			wantErr: false,
-		},
 
-		{
-			name: "10.20.30.1:5432",
-			args: args{
-				dburl: "postgres://postgres:20070902@10.20.30.1:5432/postgres?sslmode=disable",
-			},
-			wantVersion: TpgVersion{
-				Major: 17,
-				Minor: 5,
-			},
-			wantErr: false,
-		},
+	db, err := sql.Open("pgx", dsn)
+	if err != nil {
+		t.Fatalf("open db error: %v", err)
+	}
+	defer db.Close()
+
+	gotVersion, err := SearchPgVersionInDB(db)
+	if err != nil {
+		t.Fatalf("SearchPgVersionInDB() error = %v", err)
+	}
+	if gotVersion.Major <= 0 {
+		t.Fatalf("invalid pg major version: %+v", gotVersion)
+	}
+}
+
+func TestExtractPgNumericVersion(t *testing.T) {
+	tests := []struct {
+		in   string
+		want string
+	}{
+		{in: "PostgreSQL 15.3 on x86_64-pc-linux-gnu", want: "15.3"},
+		{in: "16beta2", want: "16beta2"},
+		{in: "foo bar", want: ""},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			db, err := sql.Open("pgx", tt.args.dburl)
-			if err != nil {
-				t.Fatalf("open db error: %v", err)
-			}
-			defer db.Close()
-			gotVersion, err := SearchPgVersionInDB(db)
-			if (err != nil) != tt.wantErr {
-				t.Errorf("SearchPgVersionInDB() error = %v, wantErr %v", err, tt.wantErr)
-				return
-			}
-			if !reflect.DeepEqual(gotVersion, tt.wantVersion) {
-				t.Errorf("SearchPgVersionInDB() gotVersion = %v, want %v", gotVersion, tt.wantVersion)
-			}
-		})
+		if got := extractPgNumericVersion(tt.in); got != tt.want {
+			t.Fatalf("extractPgNumericVersion(%q)=%q want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestAtoiPrefix(t *testing.T) {
+	tests := []struct {
+		in   string
+		want int
+	}{
+		{in: "15", want: 15},
+		{in: "12beta1", want: 12},
+		{in: "x12", want: 0},
+		{in: "", want: 0},
+	}
+	for _, tt := range tests {
+		if got := atoiPrefix(tt.in); got != tt.want {
+			t.Fatalf("atoiPrefix(%q)=%d want %d", tt.in, got, tt.want)
+		}
 	}
 }

@@ -86,8 +86,8 @@ func TestGetSqlTypeStr_RepeatedFields(t *testing.T) {
 	_, _, _, numsField, subsField := buildDDLArrayDescriptors(t)
 
 	got := getSqlTypeStr(numsField, &protodb.PDBField{DbTypeStr: "text", DbType: protodb.FieldDbType_TEXT}, sqldb.Postgres)
-	if got != "bigint[]" {
-		t.Fatalf("expected bigint[], got %q", got)
+	if got != "text" {
+		t.Fatalf("expected text (user DbType/DbTypeStr takes precedence), got %q", got)
 	}
 
 	got = getSqlTypeStr(subsField, &protodb.PDBField{}, sqldb.Postgres)

@@ -90,6 +90,9 @@ Add list-aware type resolution:
 
 1) If `fieldDesc.IsList()`:
 
+- If user sets `DbTypeStr` or `DbType`, use user type first.
+- Otherwise use generated type by dialect/kind.
+
 - Postgres:
   - elem kind is scalar/enum -> `<elemSqlType>[]`
   - elem kind is message -> `jsonb`

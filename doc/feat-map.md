@@ -47,6 +47,7 @@
 修改 DDL 生成逻辑 (例如在 `pdbfield.go` 的 `PdbDbTypeStr` 或调用者中)，确立以下检查顺序：
 
 1. **首先检查 `fieldDesc.IsMap()`**:
+   - 如果用户指定了 `DbTypeStr` 或 `DbType`，优先使用用户指定类型。
    - 如果为 `true`:
      - **PostgreSQL**: 返回 `jsonb`。
      - **MySQL**: 返回 `json`。
