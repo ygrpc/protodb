@@ -14,6 +14,31 @@ import (
 	"google.golang.org/protobuf/proto"
 )
 
+func buildCrudResp(rowsAffected int64, oldMsg, newMsg proto.Message, msgFormat int32) (*protodb.CrudResp, error) {
+	resp := &protodb.CrudResp{
+		RowsAffected: rowsAffected,
+		MsgFormat:    msgFormat,
+	}
+
+	if oldMsg != nil {
+		oldMsgBytes, err := crud.MsgMarshal(oldMsg, msgFormat)
+		if err != nil {
+			return nil, err
+		}
+		resp.OldMsgBytes = oldMsgBytes
+	}
+
+	if newMsg != nil {
+		newMsgBytes, err := crud.MsgMarshal(newMsg, msgFormat)
+		if err != nil {
+			return nil, err
+		}
+		resp.NewMsgBytes = newMsgBytes
+	}
+
+	return resp, nil
+}
+
 func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnGetDb TfnProtodbGetDb, fnCrudPermission TfnProtodbCrudPermission) (resp *protodb.CrudResp, err error) {
 
 	db, err := fnGetDb(meta, req.SchemeName, req.TableName, true)
@@ -26,8 +51,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 		return nil, fmt.Errorf("can not get proto msg %s err", req.TableName)
 	}
 
-	// unmarshal
-	err = proto.Unmarshal(req.MsgBytes, dbmsg)
+	err = crud.MsgUnmarshal(dbmsg, req.MsgBytes, req.MsgFormat)
 	if err != nil {
 		return nil, fmt.Errorf("unmarshal msg %s err: %w", req.TableName, err)
 	}
@@ -55,14 +79,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
 			}
-			newMsgBytes, err := crud.MsgMarshal(newMsg, req.MsgFormat)
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
 			if err != nil {
 				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
-			}
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				NewMsgBytes:  newMsgBytes,
-				MsgFormat:    req.MsgFormat,
 			}
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
 			return resp, nil
@@ -84,13 +103,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
 			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
 			if err != nil {
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				NewMsgBytes:  NewMsgBytes,
 			}
 
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
@@ -100,19 +115,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
 			}
-			OldMsgBytes, err := proto.Marshal(oldMsg)
+			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
 			if err != nil {
-				return nil, fmt.Errorf("marshal old msg %s err: %w", req.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				OldMsgBytes:  OldMsgBytes,
-				NewMsgBytes:  NewMsgBytes,
+				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
 			return resp, nil
@@ -134,13 +139,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
 			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
 			if err != nil {
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				NewMsgBytes:  NewMsgBytes,
 			}
 
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
@@ -150,18 +151,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
 			}
-			OldMsgBytes, err := proto.Marshal(oldMsg)
+			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
 			if err != nil {
-				return nil, fmt.Errorf("marshal old msg %s err: %w", req.TableName, err)
-			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				OldMsgBytes:  OldMsgBytes,
-				NewMsgBytes:  NewMsgBytes,
+				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
 
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
@@ -183,14 +175,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("delete msg %s err: %w", req.TableName, err)
 			}
-			NewMsgBytes, err := proto.Marshal(newMsg)
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
 			if err != nil {
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-
-			resp = &protodb.CrudResp{
-				RowsAffected: 1,
-				NewMsgBytes:  NewMsgBytes,
 			}
 			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
 			return resp, nil
@@ -200,13 +187,9 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 		if err != nil {
 			return nil, fmt.Errorf("selectone msg %s err: %w", req.TableName, err)
 		}
-		NewMsgBytes, err := proto.Marshal(newMsg)
+		resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
 		if err != nil {
 			return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-		}
-		resp = &protodb.CrudResp{
-			RowsAffected: 1,
-			NewMsgBytes:  NewMsgBytes,
 		}
 		return resp, nil
 	}

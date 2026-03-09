@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -62,7 +63,15 @@ func (this *TconnectrpcProtoDbSrvHandlerImpl) Crud(ctx context.Context, req *con
 
 	respCrud, err := HandleCrud(ctx, meta, CrudMsg, this.FnGetDb, fnCrudPermission)
 	if err != nil {
-		connecterr := connect.NewError(
+		var connecterr *connect.Error
+		if errors.As(err, &connecterr) {
+			if connecterr.Meta().Get("Ygrpc-Err") == "" {
+				connecterr.Meta().Set("Ygrpc-Err", connecterr.Error())
+			}
+			return nil, connecterr
+		}
+
+		connecterr = connect.NewError(
 			connect.CodeUnknown,
 			err,
 		)
