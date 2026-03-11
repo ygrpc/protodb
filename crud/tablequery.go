@@ -286,6 +286,36 @@ func buildWhere2Condition(dialect sqldb.TDBDialect, placeholder protosql.SQLPlac
 		default:
 			return "", nil, 0, fmt.Errorf("unsupported list operator %v for sqlite field %s", op, fieldName)
 		}
+	case sqldb.Mysql:
+		switch op {
+		case protodb.WhereOperator_WOP_CONTAINS:
+			if fieldDesc.Kind() == protoreflect.MessageKind {
+				cond = "JSON_CONTAINS(" + fieldName + ", JSON_ARRAY(CAST(" + buildPlaceholder(placeholder, paraNo) + " AS JSON)))"
+				return cond, []any{valueStr}, 1, nil
+			}
+			scalar, err := parseScalarString(fieldDesc.Kind(), valueStr)
+			if err != nil {
+				return "", nil, 0, err
+			}
+			cond = "JSON_CONTAINS(" + fieldName + ", JSON_ARRAY(" + buildPlaceholder(placeholder, paraNo) + "))"
+			return cond, []any{scalar}, 1, nil
+		case protodb.WhereOperator_WOP_OVERLAP:
+			cond = "JSON_OVERLAPS(" + fieldName + ", CAST(" + buildPlaceholder(placeholder, paraNo) + " AS JSON))"
+			return cond, []any{valueStr}, 1, nil
+		case protodb.WhereOperator_WOP_CONTAINS_ALL:
+			cond = "JSON_CONTAINS(" + fieldName + ", CAST(" + buildPlaceholder(placeholder, paraNo) + " AS JSON))"
+			return cond, []any{valueStr}, 1, nil
+		case protodb.WhereOperator_WOP_LEN_GT, protodb.WhereOperator_WOP_LEN_GTE, protodb.WhereOperator_WOP_LEN_LT, protodb.WhereOperator_WOP_LEN_LTE:
+			cmp := lenOpToSql(op)
+			cond = "JSON_LENGTH(" + fieldName + ")" + cmp + buildPlaceholder(placeholder, paraNo)
+			n, err := strconv.ParseInt(strings.TrimSpace(valueStr), 10, 64)
+			if err != nil {
+				return "", nil, 0, err
+			}
+			return cond, []any{n}, 1, nil
+		default:
+			return "", nil, 0, fmt.Errorf("unsupported list operator %v for mysql field %s", op, fieldName)
+		}
 	default:
 		return "", nil, 0, fmt.Errorf("unsupported dialect %v", dialect)
 	}

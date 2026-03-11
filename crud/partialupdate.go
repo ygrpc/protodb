@@ -75,6 +75,13 @@ func dbUpdatePartialReturnNew(db sqldb.DB, msg proto.Message, updateFields []str
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
 	dbdialect := sqldb.GetExecutorDialect(db)
+	if dbdialect == sqldb.Mysql {
+		_, err := dbUpdatePartial(db, msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs)
+		if err != nil {
+			return nil, err
+		}
+		return mysqlSelectReturnedMsg(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	}
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdatePartial(msg, updateFields, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -118,8 +125,8 @@ func dbUpdatePartialReturnOldAndNew(db sqldb.DB, msg proto.Message, updateFields
 
 	dbdialect := sqldb.GetExecutorDialect(db)
 
-	//if db is sqlite, sqlite is not support return old and new,use selectone + returnnew
-	if dbdialect == sqldb.SQLite {
+	//if db is sqlite/mysql, use selectone + update + selectone fallback
+	if dbdialect == sqldb.SQLite || dbdialect == sqldb.Mysql {
 		oldMsg, err = dbSelectOne(db, msg, nil, nil, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 		if err != nil {
 			return nil, nil, err
@@ -297,7 +304,7 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 		sqlVals = append(sqlVals, val)
 	}
 
-	if returnUpdated {
+	if returnUpdated && mysqlSupportsReturning(dbdialect) {
 		sb.WriteString(" RETURNING * ")
 	}
 

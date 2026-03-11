@@ -315,7 +315,7 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 
 	sqlStr += protosql.SQL_SEMICOLON
 
-	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap)
+	uniqueKeySql := createUniqueKeySql(dbtableName, uniquekeysMap, dbdialect)
 	if len(uniqueKeySql) > 0 {
 		//new line
 		sqlStr += "\n"
@@ -330,14 +330,15 @@ func dbCreateSQL(db *sql.DB, msg proto.Message, dbschema string, tableName strin
 	return initSqlItem, nil
 }
 
-func createOneUniqueKeySql(tableName string, uniqueName string, uniquekeysFields []protoreflect.FieldDescriptor) string {
+func createOneUniqueKeySql(tableName string, uniqueName string, uniquekeysFields []protoreflect.FieldDescriptor, dialect sqldb.TDBDialect) string {
 	sb := strings.Builder{}
 
-	//sb.WriteString(" create unique index if not exists ")
 	sb.WriteString(protosql.SQL_CREATE)
 	sb.WriteString(protosql.SQL_UNIQUE)
 	sb.WriteString(protosql.SQL_INDEX)
-	sb.WriteString(protosql.SQL_IF_NOT_EXISTS)
+	if dialect != sqldb.Mysql {
+		sb.WriteString(protosql.SQL_IF_NOT_EXISTS)
+	}
 	sb.WriteString(uniqueName)
 	//on
 	sb.WriteString(protosql.SQL_ON)
@@ -359,11 +360,11 @@ func createOneUniqueKeySql(tableName string, uniqueName string, uniquekeysFields
 	return sb.String()
 }
 
-func createUniqueKeySql(tableName string, uniquekeysMap map[string][]protoreflect.FieldDescriptor) string {
+func createUniqueKeySql(tableName string, uniquekeysMap map[string][]protoreflect.FieldDescriptor, dialect sqldb.TDBDialect) string {
 	sb := strings.Builder{}
 	// unique keys
 	for uniqueName, uniqueFields := range uniquekeysMap {
-		sb.WriteString(createOneUniqueKeySql(tableName, uniqueName, uniqueFields))
+		sb.WriteString(createOneUniqueKeySql(tableName, uniqueName, uniqueFields, dialect))
 	}
 
 	return sb.String()
@@ -741,7 +742,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		}
 		if len(indexColumns) == 0 {
 			//not exist,create it
-			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
 			migrateUniqueKeySql += createUniqueKeySql
 		} else {
 			if !uniqueKeyColumnsEqual(indexColumns, uniqueKeyFields) {
@@ -751,7 +752,7 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 					dropUniqueKeySql = fmt.Sprintf("drop index if exists %s.%s ;\n", dbschema, uniqueKeyName)
 				}
 				migrateUniqueKeySql += dropUniqueKeySql
-				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
 				migrateUniqueKeySql += createUniqueKeySql
 			}
 		}
@@ -795,7 +796,192 @@ func isSqlInitItemExist(item *TDbTableInitSql, tableName string, existTableMap m
 func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Message, dbschema string, tableName string,
 	msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors, checkRefference bool, withComment bool,
 	builtInitSqlMap map[string]*TDbTableInitSql) (return_migrateItem *TDbTableInitSql, err error) {
-	return nil, errors.New("not support database dialect Mysql now")
+	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, sqldb.Mysql)
+
+	exists, err := IsMysqlTableExists(db, dbtableName)
+	if err != nil {
+		return nil, err
+	}
+
+	migrateItem.TableExists = exists
+	if !exists {
+		createSQLItem, err := dbCreateSQL(db, msg, dbschema, tableName, msgDesc, msgFieldDescs, true, withComment, builtInitSqlMap)
+		if err != nil {
+			return nil, err
+		}
+		return createSQLItem, nil
+	}
+
+	rows, err := db.Query("SELECT column_name FROM information_schema.columns WHERE table_schema = DATABASE() AND table_name = ?", dbtableName)
+	if err != nil {
+		return nil, fmt.Errorf("error getting table columns: %w", err)
+	}
+
+	existingColumns := make(map[string]bool)
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			rows.Close()
+			return nil, fmt.Errorf("error scanning table columns: %w", err)
+		}
+		existingColumns[strings.ToLower(columnName)] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return nil, fmt.Errorf("error iterating table columns: %w", err)
+	}
+	rows.Close()
+
+	var alterStatements []string
+	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
+	dbdialect := sqldb.Mysql
+
+	for i := 0; i < msgFieldDescs.Len(); i++ {
+		fieldDesc := msgFieldDescs.Get(i)
+		fieldName := string(fieldDesc.Name())
+		fieldNameLowercase := strings.ToLower(fieldName)
+		pdb, _ := pdbutil.GetPDB(fieldDesc)
+
+		if pdb.NotDB {
+			continue
+		}
+
+		if pdb.Unique {
+			if len(pdb.UniqueName) > 0 {
+				idxName := pdb.UniqueName
+				if len(dbschema) > 0 {
+					idxName = dbschema + "_" + idxName
+				}
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
+			} else {
+				idxName := fmt.Sprintf("uk_%s_%s", tableName, fieldName)
+				if len(dbschema) > 0 {
+					idxName = fmt.Sprintf("uk_%s_%s_%s", dbschema, tableName, fieldName)
+				}
+				uniquekeysMap[idxName] = append(uniquekeysMap[idxName], fieldDesc)
+			}
+		}
+
+		sqlType := getSqlTypeStr(fieldDesc, pdb, dbdialect)
+		if !existingColumns[fieldNameLowercase] {
+			alterStmt := fmt.Sprintf("ALTER TABLE %s ADD COLUMN %s %s", dbtableName, fieldName, sqlType)
+
+			if fieldDesc.IsMap() {
+				alterStmt += " NOT NULL "
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, dbdialect, sqlType)
+				} else {
+					alterStmt += " DEFAULT (CAST('{}' AS JSON))"
+				}
+			} else if fieldDesc.IsList() {
+				alterStmt += " NOT NULL "
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + normalizeUserDefaultValue(pdb.DefaultValue, dbdialect, sqlType)
+				} else if fieldDesc.Kind() == protoreflect.MessageKind || sqlType == "json" {
+					alterStmt += " DEFAULT (CAST('[]' AS JSON))"
+				} else {
+					alterStmt += " DEFAULT (CAST('{}' AS JSON))"
+				}
+			} else {
+				if pdb.NotNull {
+					alterStmt += " NOT NULL "
+				}
+				if len(pdb.DefaultValue) > 0 {
+					alterStmt += " DEFAULT " + TryAddQuote2DefaultValue(fieldDesc.Kind(), pdb.DefaultValue)
+				}
+			}
+
+			if len(pdb.Reference) > 0 {
+				alterStmt += " REFERENCES " + pdb.Reference
+			}
+
+			alterStmt += ";"
+			alterStatements = append(alterStatements, alterStmt)
+		}
+
+		if len(pdb.Reference) > 0 && checkRefference {
+			depMsgName, err := GetRefTableName(pdb.Reference)
+			if err != nil {
+				return nil, fmt.Errorf("get reference table name %s err: %s", migrateItem.TableName, err)
+			}
+			if depMsgName == migrateItem.TableName {
+				continue
+			}
+			if !isSqlInitItemExist(migrateItem, depMsgName, builtInitSqlMap) {
+				depMsg, found := msgstore.GetMsg(depMsgName, false)
+				if !found {
+					return nil, fmt.Errorf("reference table msg %s not found for %s", pdb.Reference, depMsgName)
+				}
+				depMigrateItem, err := DbMigrateTable(db, depMsg, dbschema, checkRefference, withComment, builtInitSqlMap)
+				if err != nil {
+					return nil, fmt.Errorf("%s migrate reference %s for field %s fail:%s", migrateItem.TableName, pdb.Reference, fieldName, err.Error())
+				}
+				migrateItem.DepTableSqlItemMap[depMsgName] = depMigrateItem
+				migrateItem.DepTableNames = append(migrateItem.DepTableNames, depMsgName)
+			}
+		}
+	}
+
+	if len(alterStatements) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, alterStatements...)
+	}
+
+	migrateUniqueKeySql := ""
+	for uniqueKeyName, uniqueKeyFields := range uniquekeysMap {
+		indexColumns, err := getMysqlIndex(db, dbtableName, uniqueKeyName)
+		if err != nil {
+			return nil, err
+		}
+		if len(indexColumns) == 0 {
+			migrateUniqueKeySql += createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
+		} else if !uniqueKeyColumnsEqual(indexColumns, uniqueKeyFields) {
+			migrateUniqueKeySql += fmt.Sprintf("drop index %s on %s;\n", uniqueKeyName, dbtableName)
+			migrateUniqueKeySql += createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
+		}
+	}
+	if len(migrateUniqueKeySql) > 0 {
+		migrateItem.SqlStr = append(migrateItem.SqlStr, migrateUniqueKeySql)
+	}
+
+	pdbm, found := pdbutil.GetPDBM(msgDesc)
+	if found {
+		if len(pdbm.SQLMigrate) > 0 {
+			migrateItem.SqlStr = append(migrateItem.SqlStr, pdbm.SQLMigrate...)
+		}
+	}
+
+	return migrateItem, nil
+}
+
+// IsMysqlTableExists checks if a table exists in the current database.
+func IsMysqlTableExists(db *sql.DB, tableName string) (bool, error) {
+	var exists bool
+	err := db.QueryRow("SELECT EXISTS (SELECT table_name FROM information_schema.tables WHERE table_schema = DATABASE() AND table_name = ?)", tableName).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("error checking table existence: %w", err)
+	}
+	return exists, nil
+}
+
+func getMysqlIndex(db *sql.DB, tableName string, idxName string) (indexColumns map[string]struct{}, err error) {
+	rows, err := db.Query("SELECT column_name FROM information_schema.statistics WHERE table_schema = DATABASE() AND table_name = ? AND index_name = ? ORDER BY seq_in_index", tableName, idxName)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	indexColumns = make(map[string]struct{}, 0)
+	for rows.Next() {
+		var columnName string
+		if err := rows.Scan(&columnName); err != nil {
+			return nil, err
+		}
+		indexColumns[strings.ToLower(columnName)] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return indexColumns, nil
 }
 
 // IsSQLiteTableExists check if table exists.
@@ -1000,14 +1186,14 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 		}
 		if len(indexColumns) == 0 {
 			//not exist,create it
-			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+			createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
 			migrateUniqueKeySql += createUniqueKeySql
 		} else {
 			if !uniqueKeyColumnsEqual(indexColumns, uniqueKeyFields) {
 				//not equal,drop it and create it
 				dropUniqueKeySql := fmt.Sprintf("drop index if exists %s;\n", uniqueKeyName)
 				migrateUniqueKeySql += dropUniqueKeySql
-				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields)
+				createUniqueKeySql := createOneUniqueKeySql(dbtableName, uniqueKeyName, uniqueKeyFields, dbdialect)
 				migrateUniqueKeySql += createUniqueKeySql
 			}
 		}

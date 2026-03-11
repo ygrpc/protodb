@@ -29,6 +29,17 @@ func DbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string) (returnMsg 
 
 func dbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string, tableName string, msgDesc protoreflect.MessageDescriptor, msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 	dbdialect := sqldb.GetExecutorDialect(db)
+	if dbdialect == sqldb.Mysql {
+		oldMsg, err := dbSelectOne(db, msg, nil, nil, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
+		if err != nil {
+			return nil, err
+		}
+		_, err = DbDelete(db, msg, dbschema)
+		if err != nil {
+			return nil, err
+		}
+		return oldMsg, nil
+	}
 
 	sqlStr, sqlVals, err := dbBuildSqlDelete(msg, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -137,7 +148,7 @@ func dbBuildSqlDelete(msgobj proto.Message, dbschema string, tableName string,
 
 	}
 
-	if returnDeleted {
+	if returnDeleted && mysqlSupportsReturning(dbdialect) {
 		sb.WriteString(" RETURNING * ")
 	}
 	sb.WriteString(protosql.SQL_SEMICOLON)

@@ -55,6 +55,33 @@ func TestTableQueryBuildSql_ArrayContains_Postgres(t *testing.T) {
 	}
 }
 
+func TestTableQueryBuildSql_ArrayContains_Mysql(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.Mysql}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	req := &protodb.TableQueryReq{
+		SchemeName: "",
+		TableName:  "t",
+		Where2: map[string]string{
+			"ResultColumnNames": "abc",
+		},
+		Where2Operator: map[string]protodb.WhereOperator{
+			"ResultColumnNames": protodb.WhereOperator_WOP_CONTAINS,
+		},
+	}
+
+	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, req, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "JSON_CONTAINS(ResultColumnNames, JSON_ARRAY(?))") {
+		t.Fatalf("unexpected sql: %s", sqlStr)
+	}
+	if len(vals) != 1 || vals[0] != "abc" {
+		t.Fatalf("unexpected vals: %#v", vals)
+	}
+}
+
 func TestTableQueryBuildSql_ArrayOverlap_SQLite(t *testing.T) {
 	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.SQLite}
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
@@ -75,6 +102,33 @@ func TestTableQueryBuildSql_ArrayOverlap_SQLite(t *testing.T) {
 		t.Fatalf("TableQueryBuildSql: %v", err)
 	}
 	if !strings.Contains(sqlStr, "json_each(ResultColumnNames)") {
+		t.Fatalf("unexpected sql: %s", sqlStr)
+	}
+	if len(vals) != 1 || vals[0] != "[\"a\",\"b\"]" {
+		t.Fatalf("unexpected vals: %#v", vals)
+	}
+}
+
+func TestTableQueryBuildSql_ArrayOverlap_Mysql(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.Mysql}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	req := &protodb.TableQueryReq{
+		SchemeName: "",
+		TableName:  "t",
+		Where2: map[string]string{
+			"ResultColumnNames": "[\"a\",\"b\"]",
+		},
+		Where2Operator: map[string]protodb.WhereOperator{
+			"ResultColumnNames": protodb.WhereOperator_WOP_OVERLAP,
+		},
+	}
+
+	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, req, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "JSON_OVERLAPS(ResultColumnNames, CAST(? AS JSON))") {
 		t.Fatalf("unexpected sql: %s", sqlStr)
 	}
 	if len(vals) != 1 || vals[0] != "[\"a\",\"b\"]" {
@@ -142,6 +196,33 @@ func TestTableQueryBuildSql_ArrayContainsAll_Postgres(t *testing.T) {
 	}
 }
 
+func TestTableQueryBuildSql_ArrayContainsAll_Mysql(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.Mysql}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	req := &protodb.TableQueryReq{
+		SchemeName: "",
+		TableName:  "t",
+		Where2: map[string]string{
+			"ResultColumnNames": "[\"a\",\"b\"]",
+		},
+		Where2Operator: map[string]protodb.WhereOperator{
+			"ResultColumnNames": protodb.WhereOperator_WOP_CONTAINS_ALL,
+		},
+	}
+
+	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, req, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "JSON_CONTAINS(ResultColumnNames, CAST(? AS JSON))") {
+		t.Fatalf("unexpected sql: %s", sqlStr)
+	}
+	if len(vals) != 1 || vals[0] != "[\"a\",\"b\"]" {
+		t.Fatalf("unexpected vals: %#v", vals)
+	}
+}
+
 func TestTableQueryBuildSql_ArrayLenGT_Postgres(t *testing.T) {
 	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.Postgres}
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
@@ -162,6 +243,33 @@ func TestTableQueryBuildSql_ArrayLenGT_Postgres(t *testing.T) {
 		t.Fatalf("TableQueryBuildSql: %v", err)
 	}
 	if !strings.Contains(sqlStr, "cardinality(ResultColumnNames) > $1") {
+		t.Fatalf("unexpected sql: %s", sqlStr)
+	}
+	if len(vals) != 1 || !reflect.DeepEqual(vals[0], int64(2)) {
+		t.Fatalf("unexpected vals: %#v", vals)
+	}
+}
+
+func TestTableQueryBuildSql_ArrayLenGT_Mysql(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB{}, Dialect: sqldb.Mysql}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	req := &protodb.TableQueryReq{
+		SchemeName: "",
+		TableName:  "t",
+		Where2: map[string]string{
+			"ResultColumnNames": "2",
+		},
+		Where2Operator: map[string]protodb.WhereOperator{
+			"ResultColumnNames": protodb.WhereOperator_WOP_LEN_GT,
+		},
+	}
+
+	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, req, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "JSON_LENGTH(ResultColumnNames) > ?") {
 		t.Fatalf("unexpected sql: %s", sqlStr)
 	}
 	if len(vals) != 1 || !reflect.DeepEqual(vals[0], int64(2)) {

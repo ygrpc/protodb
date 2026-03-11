@@ -166,6 +166,21 @@ func TestBuildWhere2Condition_RepeatedMessage_Postgres(t *testing.T) {
 	}
 }
 
+func TestBuildWhere2Condition_RepeatedMessage_MysqlContains(t *testing.T) {
+	_, _, _, subsField, _ := buildTestArrayDescriptors(t)
+
+	cond, args, inc, err := buildWhere2Condition(sqldb.Mysql, protosql.SQL_QUESTION, 1, subsField, protodb.WhereOperator_WOP_CONTAINS, "{\"name\":\"a\"}")
+	if err != nil {
+		t.Fatalf("buildWhere2Condition contains: %v", err)
+	}
+	if cond != "JSON_CONTAINS(subs, JSON_ARRAY(CAST(? AS JSON)))" {
+		t.Fatalf("unexpected cond: %s", cond)
+	}
+	if inc != 1 || len(args) != 1 || args[0] != "{\"name\":\"a\"}" {
+		t.Fatalf("unexpected args/inc: %#v %d", args, inc)
+	}
+}
+
 func TestBuildWhere2Condition_RepeatedScalar_SQLiteContainsAllAndLen(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 	field := msgDesc.Fields().ByName("ResultColumnNames")

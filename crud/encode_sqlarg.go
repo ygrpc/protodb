@@ -129,7 +129,7 @@ func EncodeSQLArg(fieldDesc protoreflect.FieldDescriptor, dialect sqldb.TDBDiale
 			return string(b), nil
 		}
 
-		if dialect == sqldb.SQLite {
+		if dialect == sqldb.SQLite || dialect == sqldb.Mysql {
 			b, err := json.Marshal(goValue)
 			if err != nil {
 				return nil, err

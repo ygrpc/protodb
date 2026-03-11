@@ -114,7 +114,7 @@
     - **SQL 生成**:
         - **PG**: `col ? $key`
         - **SQLite**: `EXISTS (SELECT 1 FROM json_each(col) WHERE key = $key)`
-        - **MySQL**: `JSON_CONTAINS_PATH(col, 'one', CONCAT('$."', $key, '"'))`
+        - **MySQL**: `JSON_CONTAINS_PATH(col, 'one', CONCAT('$.', $key))`
 
 2. **`WOP_CONTAINS`** (现有 - 复用): 检查 map 是否包含键值对子集 (Subset Match)。
     - **语义**: 当用于 Map 字段时，表示 JSON 对象包含语义 (`@>`)。即：左值 Map 包含右值 Map 的所有键，且对应的值相等。

@@ -14,7 +14,7 @@ Goal: add first-class support for `repeated` fields stored as **DB arrays** (Pos
 ## Scope / Requirements
 
 - Primary dialect: **PostgreSQL**.
-- Compatibility: **SQLite** (MySQL can be ignored for now).
+- Compatibility: **SQLite** and **MySQL**.
 - Supported repeated types:
   - **Required**: repeated scalar + enum.
   - **Nice-to-have**: repeated message.

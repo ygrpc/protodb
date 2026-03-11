@@ -62,6 +62,20 @@ func dbInsertReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbsche
 	msgFieldDescs protoreflect.FieldDescriptors) (returnMsg proto.Message, err error) {
 
 	dbdialect := sqldb.GetExecutorDialect(db)
+	if dbdialect == sqldb.Mysql {
+		sqlStr, sqlVals, err := dbBuildSqlInsert(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, false)
+		if err != nil {
+			return nil, err
+		}
+		result, err := db.Exec(sqlStr, sqlVals...)
+		if err != nil {
+			return nil, err
+		}
+		if err := mysqlPopulateInsertPrimaryKey(msg, msgDesc, msgFieldDescs, result); err != nil {
+			return nil, err
+		}
+		return mysqlSelectReturnedMsg(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	}
 
 	sqlStr, sqlVals, err := dbBuildSqlInsert(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -210,7 +224,7 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	}
 
 	sb.WriteString(protosql.SQL_RIGHT_PARENTHESES)
-	if returnInserted {
+	if returnInserted && mysqlSupportsReturning(dbdialect) {
 		sb.WriteString(" RETURNING * ")
 
 	}

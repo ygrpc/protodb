@@ -82,6 +82,13 @@ func dbUpdateReturnNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbs
 	msgFieldDescs protoreflect.FieldDescriptors,
 ) (newMsg proto.Message, err error) {
 	dbdialect := sqldb.GetExecutorDialect(db)
+	if dbdialect == sqldb.Mysql {
+		_, err := dbUpdate(db, msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs)
+		if err != nil {
+			return nil, err
+		}
+		return mysqlSelectReturnedMsg(db, msg, dbschema, tableName, msgDesc, msgFieldDescs)
+	}
 
 	sqlStr, sqlVals, err := dbBuildSqlUpdate(msg, msgLastFieldNo, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 	if err != nil {
@@ -229,7 +236,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		sqlVals = append(sqlVals, val)
 	}
 
-	if returnUpdated {
+	if returnUpdated && mysqlSupportsReturning(dbdialect) {
 		sb.WriteString(" RETURNING * ")
 	}
 
@@ -246,8 +253,8 @@ func dbUpdateReturnOldAndNew(db sqldb.DB, msg proto.Message, msgLastFieldNo int3
 ) (oldMsg proto.Message, newMsg proto.Message, err error) {
 	dbdialect := sqldb.GetExecutorDialect(db)
 
-	//if db is sqlite, sqlite is not support return old and new,use selectone + returnnew
-	if dbdialect == sqldb.SQLite {
+	//if db is sqlite/mysql, use selectone + update + selectone fallback
+	if dbdialect == sqldb.SQLite || dbdialect == sqldb.Mysql {
 		oldMsg, err = dbSelectOne(db, msg, nil, nil, dbschema, tableName, msgDesc, msgFieldDescs, dbdialect, true)
 		if err != nil {
 			return nil, nil, err
