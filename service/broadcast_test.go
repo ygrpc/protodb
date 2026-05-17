@@ -1,8 +1,10 @@
 package service
 
 import (
+	"fmt"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/ygrpc/protodb"
@@ -85,5 +87,95 @@ func TestUnregisterBroadcastLeavesOtherHandlers(t *testing.T) {
 	}
 	if callsB != 1 {
 		t.Fatalf("callsB = %d, want 1", callsB)
+	}
+}
+
+func TestBroadcastRecoversHandlerPanic(t *testing.T) {
+	broadcaster := newTestBroadcaster()
+	calls := 0
+
+	broadcaster.RegisterBroadcast("User", func(http.Header, sqldb.DB, *protodb.CrudReq, proto.Message, proto.Message) {
+		panic("boom")
+	})
+	broadcaster.RegisterBroadcast("User", func(http.Header, sqldb.DB, *protodb.CrudReq, proto.Message, proto.Message) {
+		calls++
+	})
+
+	broadcaster.Broadcast(nil, nil, testBroadcastReq("User", protodb.CrudReqCode_INSERT), nil, nil)
+	if calls != 1 {
+		t.Fatalf("calls = %d, want 1", calls)
+	}
+}
+
+func TestBroadcastAsyncSnapshotsMutableInputs(t *testing.T) {
+	broadcaster := newTestBroadcaster()
+	errCh := make(chan error, 1)
+	meta := http.Header{"X-Test": []string{"old"}}
+	req := &protodb.CrudReq{
+		TableName: "User",
+		Code:      protodb.CrudReqCode_INSERT,
+		MsgBytes:  []byte("old"),
+	}
+	reqMsg := &protodb.PDBField{Comment: []string{"old"}}
+	respMsg := &protodb.CrudResp{
+		RowsAffected: 1,
+		NewMsgBytes:  []byte("old"),
+	}
+
+	broadcaster.RegisterBroadcast("User", func(meta http.Header, db sqldb.DB, req *protodb.CrudReq, reqMsg proto.Message, respMsg proto.Message) {
+		if got := meta.Get("X-Test"); got != "old" {
+			errCh <- fmt.Errorf("meta X-Test = %q, want old", got)
+			return
+		}
+		if req.TableName != "User" {
+			errCh <- fmt.Errorf("req.TableName = %q, want User", req.TableName)
+			return
+		}
+		if got := string(req.MsgBytes); got != "old" {
+			errCh <- fmt.Errorf("req.MsgBytes = %q, want old", got)
+			return
+		}
+
+		gotReqMsg, ok := reqMsg.(*protodb.PDBField)
+		if !ok {
+			errCh <- fmt.Errorf("reqMsg type = %T, want *protodb.PDBField", reqMsg)
+			return
+		}
+		if gotReqMsg.Comment[0] != "old" {
+			errCh <- fmt.Errorf("reqMsg.Comment[0] = %q, want old", gotReqMsg.Comment[0])
+			return
+		}
+
+		gotRespMsg, ok := respMsg.(*protodb.CrudResp)
+		if !ok {
+			errCh <- fmt.Errorf("respMsg type = %T, want *protodb.CrudResp", respMsg)
+			return
+		}
+		if gotRespMsg.RowsAffected != 1 {
+			errCh <- fmt.Errorf("respMsg.RowsAffected = %d, want 1", gotRespMsg.RowsAffected)
+			return
+		}
+		if got := string(gotRespMsg.NewMsgBytes); got != "old" {
+			errCh <- fmt.Errorf("respMsg.NewMsgBytes = %q, want old", got)
+			return
+		}
+		errCh <- nil
+	})
+
+	broadcaster.BroadcastAsync(meta, nil, req, reqMsg, respMsg)
+	meta.Set("X-Test", "new")
+	req.TableName = "Other"
+	req.MsgBytes[0] = 'n'
+	reqMsg.Comment[0] = "new"
+	respMsg.RowsAffected = 2
+	respMsg.NewMsgBytes[0] = 'n'
+
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("broadcast handler was not called")
 	}
 }
