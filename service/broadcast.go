@@ -2,6 +2,7 @@ package service
 
 import (
 	"net/http"
+	"reflect"
 
 	"github.com/puzpuzpuz/xsync/v3"
 	"github.com/ygrpc/protodb"
@@ -44,8 +45,7 @@ func (this *TcrudBroadcaster) RegisterBroadcastByCode(msgName string, crudCode p
 		return
 	}
 
-	fns = append(fns, fnCrudBroadcastHandler)
-	msgFnMaps.Store(msgName, fns)
+	msgFnMaps.Store(msgName, appendCrudBroadcastHandler(fns, fnCrudBroadcastHandler))
 }
 
 func (this *TcrudBroadcaster) UnregisterBroadcastByCode(msgName string, crudCode protodb.CrudReqCode, fnCrudBroadcastHandler TfnCrudBroadcastHandler) {
@@ -58,9 +58,8 @@ func (this *TcrudBroadcaster) UnregisterBroadcastByCode(msgName string, crudCode
 		return
 	}
 	for i, fn := range fns {
-		if &fn == &fnCrudBroadcastHandler {
-			fns = append(fns[:i], fns[i+1:]...)
-			msgFnMaps.Store(msgName, fns)
+		if sameCrudBroadcastHandler(fn, fnCrudBroadcastHandler) {
+			msgFnMaps.Store(msgName, removeCrudBroadcastHandler(fns, i))
 			return
 		}
 	}
@@ -75,8 +74,7 @@ func (this *TcrudBroadcaster) RegisterBroadcast(msgName string, fnCrudBroadcastH
 		return
 	}
 
-	fns = append(fns, fnCrudBroadcastHandler)
-	this.fnCrudBroadcastMap.Store(msgName, fns)
+	this.fnCrudBroadcastMap.Store(msgName, appendCrudBroadcastHandler(fns, fnCrudBroadcastHandler))
 }
 
 func (this *TcrudBroadcaster) UnregisterBroadcast(msgName string, fnCrudBroadcastHandler TfnCrudBroadcastHandler) {
@@ -85,9 +83,8 @@ func (this *TcrudBroadcaster) UnregisterBroadcast(msgName string, fnCrudBroadcas
 		return
 	}
 	for i, fn := range fns {
-		if &fn == &fnCrudBroadcastHandler {
-			fns = append(fns[:i], fns[i+1:]...)
-			this.fnCrudBroadcastMap.Store(msgName, fns)
+		if sameCrudBroadcastHandler(fn, fnCrudBroadcastHandler) {
+			this.fnCrudBroadcastMap.Store(msgName, removeCrudBroadcastHandler(fns, i))
 			return
 		}
 	}
@@ -114,4 +111,25 @@ func broadcastCrudReq(fns []TfnCrudBroadcastHandler, meta http.Header, db sqldb.
 	for _, fn := range fns {
 		fn(meta, db, req, reqMsg, respMsg)
 	}
+}
+
+func appendCrudBroadcastHandler(fns []TfnCrudBroadcastHandler, fn TfnCrudBroadcastHandler) []TfnCrudBroadcastHandler {
+	next := make([]TfnCrudBroadcastHandler, 0, len(fns)+1)
+	next = append(next, fns...)
+	next = append(next, fn)
+	return next
+}
+
+func removeCrudBroadcastHandler(fns []TfnCrudBroadcastHandler, idx int) []TfnCrudBroadcastHandler {
+	next := make([]TfnCrudBroadcastHandler, 0, len(fns)-1)
+	next = append(next, fns[:idx]...)
+	next = append(next, fns[idx+1:]...)
+	return next
+}
+
+func sameCrudBroadcastHandler(left, right TfnCrudBroadcastHandler) bool {
+	if left == nil || right == nil {
+		return left == nil && right == nil
+	}
+	return reflect.ValueOf(left).Pointer() == reflect.ValueOf(right).Pointer()
 }
