@@ -34,7 +34,7 @@ func TestTableQueryBuildSql_ArrayContains_Postgres(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "abc",
 		},
@@ -61,7 +61,7 @@ func TestTableQueryBuildSql_ArrayContains_Mysql(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "abc",
 		},
@@ -88,7 +88,7 @@ func TestTableQueryBuildSql_ArrayOverlap_SQLite(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "[\"a\",\"b\"]",
 		},
@@ -115,7 +115,7 @@ func TestTableQueryBuildSql_ArrayOverlap_Mysql(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "[\"a\",\"b\"]",
 		},
@@ -142,7 +142,7 @@ func TestTableQueryBuildSql_ArrayOverlap_Postgres(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "[\"a\",\"b\"]",
 		},
@@ -172,7 +172,7 @@ func TestTableQueryBuildSql_ArrayContainsAll_Postgres(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "[\"a\",\"b\"]",
 		},
@@ -202,7 +202,7 @@ func TestTableQueryBuildSql_ArrayContainsAll_Mysql(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "[\"a\",\"b\"]",
 		},
@@ -229,7 +229,7 @@ func TestTableQueryBuildSql_ArrayLenGT_Postgres(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "2",
 		},
@@ -256,7 +256,7 @@ func TestTableQueryBuildSql_ArrayLenGT_Mysql(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "2",
 		},
@@ -283,7 +283,7 @@ func TestTableQueryBuildSql_ArrayLenGTE_Postgres(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "3",
 		},
@@ -310,7 +310,7 @@ func TestTableQueryBuildSql_ArrayLenLT_SQLite(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "4",
 		},
@@ -337,7 +337,7 @@ func TestTableQueryBuildSql_ArrayLenLTE_SQLite(t *testing.T) {
 
 	req := &protodb.TableQueryReq{
 		SchemeName: "",
-		TableName:  "t",
+		TableName:  string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "5",
 		},
