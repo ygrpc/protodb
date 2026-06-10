@@ -93,9 +93,8 @@ func GetDBPlaceholder(db *sql.DB) protosql.SQLPlaceholder {
 	return dialect.Placeholder()
 }
 
-// GetDBPlaceholder get placeholder of sql.db
+// GetDBPlaceholderCache get placeholder of sql.db and cache it by db handle.
 func GetDBPlaceholderCache(db *sql.DB) (protosql.SQLPlaceholder, TDBDialectCacheItem) {
-	// is in cahce
 	if item, ok := dbDialectCache.Load(db); ok {
 		return item.Placeholder, item
 	}
@@ -108,6 +107,8 @@ func GetDBPlaceholderCache(db *sql.DB) (protosql.SQLPlaceholder, TDBDialectCache
 		Placeholder: placeholder,
 		CacheTime:   time.Now(),
 	}
+
+	dbDialectCache.Store(db, item)
 
 	return placeholder, item
 }

@@ -32,7 +32,7 @@ func TestTableQueryBuildSql_Where2MismatchLen(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "a",
 		},
@@ -48,7 +48,7 @@ func TestTableQueryBuildSql_Where2MissingOperatorForField(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "a",
 		},
@@ -66,7 +66,7 @@ func TestTableQueryBuildSql_Where2FieldNotFound(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where2: map[string]string{
 			"NoSuchField": "a",
 		},
@@ -84,7 +84,7 @@ func TestTableQueryBuildSql_Where2NonListUnsupportedOp(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where2: map[string]string{
 			"TableName": "x",
 		},
@@ -102,7 +102,7 @@ func TestTableQueryBuildSql_Where2ListUnsupportedOp(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where2: map[string]string{
 			"ResultColumnNames": "x",
 		},
@@ -120,11 +120,129 @@ func TestTableQueryBuildSql_ResultColumnsInjectionRejected(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName:         "t",
+		TableName:         string(msgDesc.Name()),
 		ResultColumnNames: []string{"a;drop table t"},
 	}, "", nil)
 	if err == nil {
 		t.Fatalf("expected error")
+	}
+}
+
+func TestTableQueryBuildSql_RejectsSchemaInjection(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		SchemeName: "public.User WHERE true --",
+		TableName:  string(msgDesc.Name()),
+	}, "", nil)
+	if err == nil {
+		t.Fatalf("expected schema injection error")
+	}
+}
+
+func TestTableQueryBuildSql_RejectsMismatchedTableName(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName: "OtherTable",
+	}, "", nil)
+	if err == nil {
+		t.Fatalf("expected table name mismatch error")
+	}
+}
+
+func TestTableQueryBuildSql_RejectsUnknownWhereField(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName: string(msgDesc.Name()),
+		Where: map[string]string{
+			"NoSuchField": "x",
+		},
+	}, "", nil)
+	if err == nil {
+		t.Fatalf("expected unknown where field error")
+	}
+}
+
+func TestTableQueryBuildSql_AllowsLowercaseTableAndWhereFields(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName: strings.ToLower(string(msgDesc.Name())),
+		Where: map[string]string{
+			"tablename": "abc",
+		},
+		Where2: map[string]string{
+			"limit": "10",
+		},
+		Where2Operator: map[string]protodb.WhereOperator{
+			"limit": protodb.WhereOperator_WOP_GT,
+		},
+	}, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, " FROM tablequeryreq") {
+		t.Fatalf("expected lowercase table name in sql, got %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "tablename = $1") {
+		t.Fatalf("expected lowercase where column in sql, got %s", sqlStr)
+	}
+	if !strings.Contains(sqlStr, "limit > $2") {
+		t.Fatalf("expected lowercase where2 column in sql, got %s", sqlStr)
+	}
+	if len(vals) != 2 || vals[0] != "abc" || vals[1] != "10" {
+		t.Fatalf("unexpected vals: %#v", vals)
+	}
+}
+
+func TestTableQueryBuildSql_AllowsResultColumnExpressions(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	sqlStr, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName:         string(msgDesc.Name()),
+		ResultColumnNames: []string{"trim(TableName)", "fn(gn(SchemeName))", "Limit::integer", "count(*)"},
+	}, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "trim(TableName)") || !strings.Contains(sqlStr, "Limit::integer") {
+		t.Fatalf("expected result column expressions in sql, got %s", sqlStr)
+	}
+}
+
+func TestTableQueryBuildSql_RejectsResultColumnDangerousKeyword(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	_, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName:         string(msgDesc.Name()),
+		ResultColumnNames: []string{"select(TableName)"},
+	}, "", nil)
+	if err == nil {
+		t.Fatalf("expected dangerous result column expression error")
+	}
+}
+
+func TestTableQueryBuildSql_AllowsOnlyStarResultColumn(t *testing.T) {
+	db := &sqldb.DBWithDialect{Executor: dummyDB2{}, Dialect: sqldb.Postgres}
+	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
+
+	sqlStr, _, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
+		TableName:         string(msgDesc.Name()),
+		ResultColumnNames: []string{"*"},
+	}, "", nil)
+	if err != nil {
+		t.Fatalf("TableQueryBuildSql: %v", err)
+	}
+	if !strings.Contains(sqlStr, "*") {
+		t.Fatalf("expected star result column, got %s", sqlStr)
 	}
 }
 
@@ -133,7 +251,7 @@ func TestTableQueryBuildSql_PermissionAndWhereClause(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where: map[string]string{
 			"TableName": "abc",
 		},
@@ -154,7 +272,7 @@ func TestTableQueryBuildSql_SelectStar_LimitOffset_AndPermissionVals(t *testing.
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Limit:     10,
 		Offset:    5,
 	}, "(a = $1)", []any{"p"})
@@ -177,7 +295,7 @@ func TestTableQueryBuildSql_WhereMap_Placeholders_Postgres(t *testing.T) {
 	msgDesc := (&protodb.TableQueryReq{}).ProtoReflect().Descriptor()
 
 	sqlStr, vals, err := TableQueryBuildSql(db, msgDesc, &protodb.TableQueryReq{
-		TableName: "t",
+		TableName: string(msgDesc.Name()),
 		Where: map[string]string{
 			"TableName":  "a",
 			"SchemeName": "b",

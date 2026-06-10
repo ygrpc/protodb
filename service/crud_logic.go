@@ -72,7 +72,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 				return nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
 			}
 			resp = dmlResult
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		case protodb.CrudResultType_NewMsg:
 			newMsg, err := crud.DbInsertReturn(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
@@ -83,7 +83,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		}
 	case protodb.CrudReqCode_UPDATE:
@@ -95,7 +95,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			}
 			resp = dmlResult
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 
 			return resp, nil
 		case protodb.CrudResultType_NewMsg:
@@ -108,7 +108,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
 			}
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		case protodb.CrudResultType_OldMsgAndNewMsg:
 			oldMsg, newMsg, err := crud.DbUpdateReturnOldAndNew(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
@@ -119,7 +119,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		}
 	case protodb.CrudReqCode_PARTIALUPDATE:
@@ -131,7 +131,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			}
 			resp = dmlResult
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 
 			return resp, nil
 		case protodb.CrudResultType_NewMsg:
@@ -144,7 +144,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
 			}
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		case protodb.CrudResultType_OldMsgAndNewMsg:
 			oldMsg, newMsg, err := crud.DbUpdatePartialReturnOldAndNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
@@ -156,7 +156,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
 			}
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		}
 	case protodb.CrudReqCode_DELETE:
@@ -168,7 +168,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			}
 			resp = dmlResult
 
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		case protodb.CrudResultType_NewMsg:
 			newMsg, err := crud.DbDeleteReturn(db, dbmsg, req.SchemeName)
@@ -179,7 +179,7 @@ func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnG
 			if err != nil {
 				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
 			}
-			go GlobalCrudBroadcaster.Broadcast(meta, db, req, dbmsg, resp)
+			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
 			return resp, nil
 		}
 	case protodb.CrudReqCode_SELECTONE:

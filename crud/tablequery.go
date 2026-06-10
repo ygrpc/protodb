@@ -20,12 +20,8 @@ type TqueryItem struct {
 }
 
 func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlVals []any) (sqlStr string, sqlVals []interface{}, err error) {
-	// Check result columns
-	if len(tableQueryReq.ResultColumnNames) > 0 {
-		err = checkSQLColumnsIsNoInjection(tableQueryReq.ResultColumnNames, ColumnNameCheckMethodInWhereOrResult)
-		if err != nil {
-			return "", nil, fmt.Errorf("check resultColumns err: %w", err)
-		}
+	if err := validateTableQueryIdentifiers(msgDesc, tableQueryReq); err != nil {
+		return "", nil, err
 	}
 
 	sb := strings.Builder{}
@@ -124,12 +120,12 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 				sb.WriteString(protosql.SQL_AND)
 			}
 
-			fieldDesc := msgDesc.Fields().ByName(protoreflect.Name(fieldname))
-			if fieldDesc == nil {
-				return "", nil, fmt.Errorf("where2 field %s not found in message %s", fieldname, msgDesc.FullName())
+			fieldDesc, err := getTableQueryFieldDesc(msgDesc, fieldname, "where2 field")
+			if err != nil {
+				return "", nil, err
 			}
 
-			condStr, condArgs, argInc, err := buildWhere2Condition(dbdialect, placeholder, sqlParaNo, fieldDesc, fieldWhereOperator, fieldValue)
+			condStr, condArgs, argInc, err := buildWhere2ConditionForColumn(dbdialect, placeholder, sqlParaNo, fieldname, fieldDesc, fieldWhereOperator, fieldValue)
 			if err != nil {
 				return "", nil, err
 			}
@@ -154,8 +150,126 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 	return sqlStr, sqlVals, nil
 }
 
+// validateTableQueryIdentifiers keeps RPC-supplied table/condition identifiers tied to the proto descriptor.
+// DB schemas often use lowercase names while proto messages use exported Go-style names, so table and field
+// checks are case-insensitive; ResultColumnNames are expression-capable and are validated separately.
+func validateTableQueryIdentifiers(msgDesc protoreflect.MessageDescriptor, tableQueryReq *protodb.TableQueryReq) error {
+	if tableQueryReq == nil {
+		return fmt.Errorf("table query request is nil")
+	}
+
+	if len(tableQueryReq.SchemeName) > 0 {
+		if err := validateTableQueryIdentifierSegment("schema", tableQueryReq.SchemeName); err != nil {
+			return err
+		}
+	}
+
+	expectedTableName := string(msgDesc.Name())
+	if !strings.EqualFold(tableQueryReq.TableName, expectedTableName) {
+		return fmt.Errorf("table name %s does not match message %s", tableQueryReq.TableName, expectedTableName)
+	}
+	if err := validateTableQueryIdentifierSegment("table", tableQueryReq.TableName); err != nil {
+		return err
+	}
+
+	if err := validateTableQueryResultColumns(msgDesc, tableQueryReq.ResultColumnNames); err != nil {
+		return err
+	}
+
+	for fieldName := range tableQueryReq.Where {
+		if _, err := getTableQueryFieldDesc(msgDesc, fieldName, "where field"); err != nil {
+			return err
+		}
+	}
+
+	for fieldName := range tableQueryReq.Where2 {
+		if _, err := getTableQueryFieldDesc(msgDesc, fieldName, "where2 field"); err != nil {
+			return err
+		}
+	}
+
+	for fieldName := range tableQueryReq.Where2Operator {
+		if _, err := getTableQueryFieldDesc(msgDesc, fieldName, "where2 operator field"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// validateTableQueryResultColumns allows projection expressions such as trim(col) or col::integer.
+// This intentionally does not require a proto-field match because SQL result expressions may be aliased
+// by callers; it only applies the expression-level injection guard used for SELECT list inputs.
+func validateTableQueryResultColumns(msgDesc protoreflect.MessageDescriptor, resultColumns []string) error {
+	if len(resultColumns) == 0 {
+		return nil
+	}
+	if len(resultColumns) == 1 && strings.TrimSpace(resultColumns[0]) == "*" {
+		return nil
+	}
+
+	for _, fieldName := range resultColumns {
+		if strings.TrimSpace(fieldName) == "*" {
+			return fmt.Errorf("result column * must be the only result column")
+		}
+		if err := checkSQLColumnsIsNoInjectionInWhere(fieldName); err != nil {
+			return fmt.Errorf("check result column %s err: %w", fieldName, err)
+		}
+	}
+	return nil
+}
+
+// getTableQueryFieldDesc resolves condition fields against the descriptor before they enter WHERE SQL.
+// It accepts DB-style lowercase names as aliases for exported proto field names.
+func getTableQueryFieldDesc(msgDesc protoreflect.MessageDescriptor, fieldName string, label string) (protoreflect.FieldDescriptor, error) {
+	if err := validateTableQueryIdentifierSegment(label, fieldName); err != nil {
+		return nil, err
+	}
+	fieldDesc := msgDesc.Fields().ByName(protoreflect.Name(fieldName))
+	if fieldDesc == nil {
+		fieldDesc = getTableQueryFieldDescFold(msgDesc, fieldName)
+	}
+	if fieldDesc == nil {
+		return nil, fmt.Errorf("%s %s not found in message %s", label, fieldName, msgDesc.FullName())
+	}
+	return fieldDesc, nil
+}
+
+// getTableQueryFieldDescFold is the lowercase DB-name compatibility path for proto fields.
+func getTableQueryFieldDescFold(msgDesc protoreflect.MessageDescriptor, fieldName string) protoreflect.FieldDescriptor {
+	fields := msgDesc.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fieldDesc := fields.Get(i)
+		if strings.EqualFold(fieldName, string(fieldDesc.Name())) || strings.EqualFold(fieldName, fieldDesc.TextName()) {
+			return fieldDesc
+		}
+	}
+	return nil
+}
+
+// validateTableQueryIdentifierSegment rejects qualified names here because schema/table/where fields are
+// assembled by the builder; allowing dots would let callers cross table/schema boundaries.
+func validateTableQueryIdentifierSegment(label string, name string) error {
+	if strings.TrimSpace(name) == "*" {
+		return fmt.Errorf("%s cannot be *", label)
+	}
+	if strings.Contains(name, ".") {
+		return fmt.Errorf("%s %s must be an unqualified identifier", label, name)
+	}
+	if err := checkSQLColumnsIsNoInjectionStrict(name); err != nil {
+		return fmt.Errorf("check %s %s err: %w", label, name, err)
+	}
+	return nil
+}
+
+// buildWhere2Condition preserves the historical helper behavior by using the descriptor text name as SQL column.
 func buildWhere2Condition(dialect sqldb.TDBDialect, placeholder protosql.SQLPlaceholder, paraNo int, fieldDesc protoreflect.FieldDescriptor, op protodb.WhereOperator, valueStr string) (cond string, args []any, argInc int, err error) {
-	fieldName := fieldDesc.TextName()
+	return buildWhere2ConditionForColumn(dialect, placeholder, paraNo, fieldDesc.TextName(), fieldDesc, op, valueStr)
+}
+
+// buildWhere2ConditionForColumn uses fieldDesc for type semantics while keeping fieldName for emitted SQL.
+// This lets lowercase DB column names pass validation without rewriting them back to exported proto names.
+func buildWhere2ConditionForColumn(dialect sqldb.TDBDialect, placeholder protosql.SQLPlaceholder, paraNo int, fieldName string, fieldDesc protoreflect.FieldDescriptor, op protodb.WhereOperator, valueStr string) (cond string, args []any, argInc int, err error) {
 	if fieldDesc.IsMap() {
 		switch dialect {
 		case sqldb.Postgres:

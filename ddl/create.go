@@ -15,6 +15,14 @@ import (
 	"google.golang.org/protobuf/reflect/protoreflect"
 )
 
+const (
+	postgresTableExistsSQL = "SELECT EXISTS (SELECT table_name FROM information_schema.tables WHERE table_schema = $1 AND table_name = $2)"
+	postgresColumnsSQL     = "SELECT column_name FROM information_schema.columns WHERE table_schema = $1 AND table_name = $2"
+	sqliteTableExistsSQL   = "SELECT EXISTS (SELECT name FROM sqlite_master WHERE type='table' AND name=?)"
+	sqliteIndexInfoSQL     = "select name from pragma_index_info(?)"
+	sqliteTableInfoSQL     = "SELECT name FROM pragma_table_info(?)"
+)
+
 type TDbTableInitSql struct {
 	DbSchema    string
 	TableName   string
@@ -527,9 +535,7 @@ func IsPostgresqlTableExists(db *sql.DB, dbschema, tableName string) (bool, erro
 	if len(dbschema) == 0 {
 		dbschema = "public"
 	}
-	query := fmt.Sprintf("SELECT EXISTS (SELECT table_name FROM information_schema.tables WHERE table_schema = '%s' AND table_name = '%s')",
-		strings.ToLower(dbschema), strings.ToLower(tableName))
-	err := db.QueryRow(query).Scan(&exists)
+	err := db.QueryRow(postgresTableExistsSQL, strings.ToLower(dbschema), strings.ToLower(tableName)).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
 	}
@@ -600,12 +606,11 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 	}
 
 	// Get existing columns
-	query := fmt.Sprintf("SELECT column_name FROM information_schema.columns WHERE table_schema = '%s' AND table_name = '%s'",
-		strings.ToLower(dbschema), strings.ToLower(tableName))
-	rows, err := db.Query(query)
+	rows, err := db.Query(postgresColumnsSQL, strings.ToLower(dbschema), strings.ToLower(tableName))
 	if err != nil {
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
+	defer rows.Close()
 
 	existingColumns := make(map[string]bool)
 	for rows.Next() {
@@ -616,8 +621,9 @@ func dbMigrateTablePostgres(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.
 		// lowercase
 		existingColumns[strings.ToLower(columnName)] = true
 	}
-
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating table columns: %w", err)
+	}
 
 	// Generate ALTER TABLE statements
 	var alterStatements []string
@@ -816,21 +822,19 @@ func dbMigrateTableMysql(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Mes
 	if err != nil {
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
+	defer rows.Close()
 
 	existingColumns := make(map[string]bool)
 	for rows.Next() {
 		var columnName string
 		if err := rows.Scan(&columnName); err != nil {
-			rows.Close()
 			return nil, fmt.Errorf("error scanning table columns: %w", err)
 		}
 		existingColumns[strings.ToLower(columnName)] = true
 	}
 	if err := rows.Err(); err != nil {
-		rows.Close()
 		return nil, fmt.Errorf("error iterating table columns: %w", err)
 	}
-	rows.Close()
 
 	var alterStatements []string
 	uniquekeysMap := map[string][]protoreflect.FieldDescriptor{}
@@ -987,8 +991,7 @@ func getMysqlIndex(db *sql.DB, tableName string, idxName string) (indexColumns m
 // IsSQLiteTableExists check if table exists.
 func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 	var exists bool
-	query := fmt.Sprintf("SELECT EXISTS (SELECT name FROM sqlite_master WHERE type='table' AND name='%s')", tableName)
-	err := db.QueryRow(query).Scan(&exists)
+	err := db.QueryRow(sqliteTableExistsSQL, tableName).Scan(&exists)
 	if err != nil {
 		return false, fmt.Errorf("error checking table existence: %w", err)
 	}
@@ -996,8 +999,7 @@ func IsSQLiteTableExists(db *sql.DB, tableName string) (bool, error) {
 }
 
 func getSqliteIndex(db *sql.DB, idxName string) (indexColumns map[string]struct{}, err error) {
-	query := fmt.Sprintf("select name from pragma_index_info('%s')", idxName)
-	rows, err := db.Query(query)
+	rows, err := db.Query(sqliteIndexInfoSQL, idxName)
 	if err != nil {
 		return nil, err
 	}
@@ -1014,6 +1016,9 @@ func getSqliteIndex(db *sql.DB, idxName string) (indexColumns map[string]struct{
 		//to lower
 		columnName = strings.ToLower(columnName)
 		indexColumns[columnName] = struct{}{}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
 	}
 
 	return indexColumns, nil
@@ -1044,11 +1049,11 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 	}
 
 	//get all columns of table
-	query := fmt.Sprintf("SELECT name FROM PRAGMA_TABLE_INFO('%s')", dbtableName)
-	rows, err := db.Query(query)
+	rows, err := db.Query(sqliteTableInfoSQL, dbtableName)
 	if err != nil {
 		return nil, fmt.Errorf("error getting table columns: %w", err)
 	}
+	defer rows.Close()
 
 	var existingColumns = make(map[string]bool)
 	for rows.Next() {
@@ -1059,8 +1064,9 @@ func dbMigrateTableSQLite(migrateItem *TDbTableInitSql, db *sql.DB, msg proto.Me
 		//lowercase
 		existingColumns[strings.ToLower(columnName)] = true
 	}
-
-	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("error iterating table columns: %w", err)
+	}
 
 	// Generate ALTER TABLE statements
 	var alterStatements []string
