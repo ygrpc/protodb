@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"strconv"
@@ -23,48 +24,304 @@ type FieldProtoMsg interface {
 	FieldProtoMsg(fieldName string) (proto.Message, bool)
 }
 
-// DbScan2ProtoMsg scan db rows to proto message, the proto msg has no nested message
-func DbScan2ProtoMsg(rows *sql.Rows, msg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (err error) {
+// allocScanDest 根据 protobuf 字段类型选择最优的 scan dest 类型，消除 interface{} 装箱
+func allocScanDest(fd protoreflect.FieldDescriptor) any {
+	if fd.IsMap() {
+		return new(sql.NullString)
+	}
+	if fd.IsList() {
+		return new(sql.NullString)
+	}
+	switch fd.Kind() {
+	case protoreflect.StringKind:
+		return new(sql.NullString)
+	case protoreflect.BoolKind:
+		return new(sql.NullBool)
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind,
+		protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind,
+		protoreflect.Uint32Kind, protoreflect.Fixed32Kind,
+		protoreflect.EnumKind:
+		return new(sql.NullInt64)
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		return new(nullUint64)
+	case protoreflect.FloatKind, protoreflect.DoubleKind:
+		return new(sql.NullFloat64)
+	case protoreflect.BytesKind:
+		return new(nullBytes)
+	case protoreflect.MessageKind:
+		return new(sql.NullString)
+	default:
+		return new(any)
+	}
+}
+
+type nullBytes struct {
+	Bytes []byte
+	Valid bool
+}
+
+type nullUint64 struct {
+	Uint64 uint64
+	Valid  bool
+}
+
+func (n *nullUint64) Scan(src any) error {
+	if src == nil {
+		n.Uint64 = 0
+		n.Valid = false
+		return nil
+	}
+	u, err := toUint64(src)
+	if err != nil {
+		return err
+	}
+	n.Uint64 = u
+	n.Valid = true
+	return nil
+}
+
+func (n *nullBytes) Scan(src any) error {
+	if src == nil {
+		n.Bytes = nil
+		n.Valid = false
+		return nil
+	}
+	n.Valid = true
+	switch x := src.(type) {
+	case []byte:
+		n.Bytes = append(n.Bytes[:0], x...)
+		return nil
+	case string:
+		n.Bytes = append(n.Bytes[:0], x...)
+		return nil
+	default:
+		return fmt.Errorf("cannot scan %T into nullBytes", src)
+	}
+}
+
+type directNoFallbackError struct {
+	err error
+}
+
+func (e directNoFallbackError) Error() string {
+	return e.err.Error()
+}
+
+func noFallback(err error) error {
+	return directNoFallbackError{err: err}
+}
+
+func canFallbackDirectError(err error) bool {
+	var noFallbackErr directNoFallbackError
+	return !errors.As(err, &noFallbackErr)
+}
+
+// setProtoMsgFieldDirect 直接通过 protoreflect API 设置字段，绕过 pdbutil.SetField 的反射开销
+func setProtoMsgFieldDirect(msg proto.Message, fd protoreflect.FieldDescriptor, v any) error {
+	if fd.IsMap() {
+		return setProtoMsgMapField(msg, fd, v)
+	}
+	if fd.IsList() {
+		return setProtoMsgListField(msg, fd, v)
+	}
+	if fd.Kind() == protoreflect.MessageKind {
+		return setProtoMsgFieldMessage(msg, fd, unwrapScanVal(v))
+	}
+
+	val := unwrapScanVal(v)
+	if val == nil {
+		return nil
+	}
+
+	pm := msg.ProtoReflect()
+	switch fd.Kind() {
+	case protoreflect.BoolKind:
+		switch x := val.(type) {
+		case bool:
+			pm.Set(fd, protoreflect.ValueOfBool(x))
+		case int64:
+			pm.Set(fd, protoreflect.ValueOfBool(x != 0))
+		default:
+			return fmt.Errorf("bool field expects bool/int64, got %T", val)
+		}
+	case protoreflect.Int32Kind, protoreflect.Sint32Kind, protoreflect.Sfixed32Kind:
+		i, err := toInt64(val)
+		if err != nil {
+			return err
+		}
+		if i < -1<<31 || i > 1<<31-1 {
+			return noFallback(fmt.Errorf("int32 field value out of range: %d", i))
+		}
+		pm.Set(fd, protoreflect.ValueOfInt32(int32(i)))
+	case protoreflect.Int64Kind, protoreflect.Sint64Kind, protoreflect.Sfixed64Kind:
+		i, err := toInt64(val)
+		if err != nil {
+			return err
+		}
+		pm.Set(fd, protoreflect.ValueOfInt64(i))
+	case protoreflect.Uint32Kind, protoreflect.Fixed32Kind:
+		i, err := toInt64(val)
+		if err != nil {
+			return err
+		}
+		if i < 0 || i > 1<<32-1 {
+			return noFallback(fmt.Errorf("uint32 field value out of range: %d", i))
+		}
+		pm.Set(fd, protoreflect.ValueOfUint32(uint32(i)))
+	case protoreflect.Uint64Kind, protoreflect.Fixed64Kind:
+		u, err := toUint64(val)
+		if err != nil {
+			return noFallback(err)
+		}
+		pm.Set(fd, protoreflect.ValueOfUint64(u))
+	case protoreflect.FloatKind:
+		f, err := toFloat64(val)
+		if err != nil {
+			return err
+		}
+		pm.Set(fd, protoreflect.ValueOfFloat32(float32(f)))
+	case protoreflect.DoubleKind:
+		f, err := toFloat64(val)
+		if err != nil {
+			return err
+		}
+		pm.Set(fd, protoreflect.ValueOfFloat64(f))
+	case protoreflect.StringKind:
+		switch x := val.(type) {
+		case string:
+			pm.Set(fd, protoreflect.ValueOfString(x))
+		default:
+			pm.Set(fd, protoreflect.ValueOfString(fmt.Sprint(val)))
+		}
+	case protoreflect.BytesKind:
+		switch x := val.(type) {
+		case []byte:
+			pm.Set(fd, protoreflect.ValueOfBytes(append([]byte(nil), x...)))
+		case string:
+			b, err := base64.StdEncoding.DecodeString(x)
+			if err != nil {
+				return err
+			}
+			pm.Set(fd, protoreflect.ValueOfBytes(b))
+		default:
+			return fmt.Errorf("bytes field expects []byte/string, got %T", val)
+		}
+	case protoreflect.EnumKind:
+		i, err := toInt64(val)
+		if err != nil {
+			return err
+		}
+		if i < -1<<31 || i > 1<<31-1 {
+			return noFallback(fmt.Errorf("enum field value out of range: %d", i))
+		}
+		pm.Set(fd, protoreflect.ValueOfEnum(protoreflect.EnumNumber(i)))
+	default:
+		return fmt.Errorf("unsupported direct field kind %v", fd.Kind())
+	}
+	return nil
+}
+
+// setProtoMsgFieldMessage 设置嵌套消息字段（直接路径的辅助函数）
+func setProtoMsgFieldMessage(msg proto.Message, fd protoreflect.FieldDescriptor, v any) error {
+	fieldName := fd.TextName()
+	filedProtoMsg, ok := msg.(FieldProtoMsg)
+	if ok {
+		fieldMsg, fieldMsgOk := filedProtoMsg.FieldProtoMsg(fieldName)
+		if !fieldMsgOk {
+			fieldMsgProto := fd.Message()
+			return fmt.Errorf("FieldProtoMsg:can't get filed proto msg for field %s.%s", fieldMsgProto.Name(), fieldName)
+		}
+		err := Val2ProtoMsgByJson(fieldMsg, v)
+		if err != nil {
+			fieldMsgProto := fd.Message()
+			return fmt.Errorf("Val2ProtoMsgByJson err:%s for field %s.%s val:%v", err.Error(), fieldMsgProto.Name(), fieldName, v)
+		}
+		return pdbutil.SetField(msg, fieldName, fieldMsg)
+	}
+
+	fieldMsgProto := fd.Message()
+	fieldMsgName := string(fieldMsgProto.Name())
+	fieldMsg, fieldMsgOk := msgstore.GetFieldMsg(fieldMsgName, true)
+	if !fieldMsgOk {
+		return fmt.Errorf("can't get filed proto msg for field %s.%s, you can register using msgstore.RegisterFieldMsg", fieldMsgProto.Name(), fieldName)
+	}
+	err := Val2ProtoMsgByJson(fieldMsg, v)
+	if err != nil {
+		return fmt.Errorf("Val2ProtoMsgByJson err:%s for field %s.%s val:%v", err.Error(), fieldMsgProto.Name(), fieldName, v)
+	}
+	return pdbutil.SetField(msg, fieldName, fieldMsg)
+}
+
+type DbRowScanner struct {
+	columnNames  []string
+	msgFieldsMap map[string]protoreflect.FieldDescriptor
+	rowVals      []any
+}
+
+func NewDbRowScanner(rows *sql.Rows, msg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (*DbRowScanner, error) {
+	var err error
 	if columnNames == nil {
 		columnNames, err = rows.Columns()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
-
-	rowVals := make([]interface{}, len(columnNames))
-	for i := range rowVals {
-		rowVals[i] = new(interface{})
-	}
-	err = rows.Scan(rowVals...)
-	if err != nil {
-		fmt.Println("DbScan2ProtoMsg err:", err)
-		return err
-	}
-
 	if msgFieldsMap == nil {
 		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, msg.ProtoReflect().Descriptor().Fields(), true)
 	}
-
-	for i := 0; i < len(columnNames); i++ {
-		columnName := strings.ToLower(columnNames[i])
-		fieldDesc, ok := msgFieldsMap[columnName]
-		if !ok {
-			fmt.Println("DbScan2ProtoMsg field not found in msgFieldsMap :", columnName)
-			fmt.Println("msgFieldsMap:", msgFieldsMap)
-			continue
-
-		}
-
-		err = SetProtoMsgField(msg, fieldDesc, rowVals[i])
-		if err != nil {
-			fmt.Println("DbScan2ProtoMsg SetProtoMsgField err:", err)
-			return err
-
+	rowVals := make([]any, len(columnNames))
+	for i := range rowVals {
+		fd, ok := msgFieldsMap[strings.ToLower(columnNames[i])]
+		if ok {
+			rowVals[i] = allocScanDest(fd)
+		} else {
+			rowVals[i] = new(any)
 		}
 	}
+	return &DbRowScanner{
+		columnNames:  columnNames,
+		msgFieldsMap: msgFieldsMap,
+		rowVals:      rowVals,
+	}, nil
+}
 
+func (s *DbRowScanner) Scan(rows *sql.Rows, msg proto.Message) error {
+	err := rows.Scan(s.rowVals...)
+	if err != nil {
+		fmt.Println("DbRowScanner Scan err:", err)
+		return err
+	}
+	for i := 0; i < len(s.columnNames); i++ {
+		columnName := strings.ToLower(s.columnNames[i])
+		fieldDesc, ok := s.msgFieldsMap[columnName]
+		if !ok {
+			fmt.Println("DbRowScanner field not found in msgFieldsMap :", columnName)
+			fmt.Println("msgFieldsMap:", s.msgFieldsMap)
+			continue
+		}
+		err = setProtoMsgFieldDirect(msg, fieldDesc, s.rowVals[i])
+		if err != nil {
+			fmt.Println("DbRowScanner setProtoMsgFieldDirect err:", err)
+			if !canFallbackDirectError(err) {
+				return err
+			}
+			err = SetProtoMsgField(msg, fieldDesc, unwrapScanVal(s.rowVals[i]))
+			if err != nil {
+				fmt.Println("DbRowScanner SetProtoMsgField err:", err)
+				return err
+			}
+		}
+	}
 	return nil
+}
+
+// DbScan2ProtoMsg scan db rows to proto message, the proto msg has no nested message
+func DbScan2ProtoMsg(rows *sql.Rows, msg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (err error) {
+	scanner, err := NewDbRowScanner(rows, msg, columnNames, msgFieldsMap)
+	if err != nil {
+		return err
+	}
+	return scanner.Scan(rows, msg)
 }
 
 func Val2ProtoMsgByJson(msg proto.Message, value interface{}) error {
@@ -170,6 +427,81 @@ func unwrapScanVal(v any) any {
 			return nil
 		}
 		return *x
+	case *bool:
+		if x == nil {
+			return nil
+		}
+		return *x
+	case *int64:
+		if x == nil {
+			return nil
+		}
+		return *x
+	case *float64:
+		if x == nil {
+			return nil
+		}
+		return *x
+	case *sql.NullString:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.String
+	case sql.NullString:
+		if !x.Valid {
+			return nil
+		}
+		return x.String
+	case *sql.NullBool:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.Bool
+	case sql.NullBool:
+		if !x.Valid {
+			return nil
+		}
+		return x.Bool
+	case *sql.NullInt64:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.Int64
+	case sql.NullInt64:
+		if !x.Valid {
+			return nil
+		}
+		return x.Int64
+	case *sql.NullFloat64:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.Float64
+	case sql.NullFloat64:
+		if !x.Valid {
+			return nil
+		}
+		return x.Float64
+	case *nullBytes:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.Bytes
+	case nullBytes:
+		if !x.Valid {
+			return nil
+		}
+		return x.Bytes
+	case *nullUint64:
+		if x == nil || !x.Valid {
+			return nil
+		}
+		return x.Uint64
+	case nullUint64:
+		if !x.Valid {
+			return nil
+		}
+		return x.Uint64
 	default:
 		return v
 	}
@@ -532,6 +864,52 @@ func toInt64(v any) (int64, error) {
 	}
 }
 
+func toUint64(v any) (uint64, error) {
+	switch x := v.(type) {
+	case json.Number:
+		if x == "" {
+			return 0, nil
+		}
+		return strconv.ParseUint(x.String(), 10, 64)
+	case int:
+		if x < 0 {
+			return 0, fmt.Errorf("cannot convert negative int to uint64: %d", x)
+		}
+		return uint64(x), nil
+	case int32:
+		if x < 0 {
+			return 0, fmt.Errorf("cannot convert negative int32 to uint64: %d", x)
+		}
+		return uint64(x), nil
+	case int64:
+		if x < 0 {
+			return 0, fmt.Errorf("cannot convert negative int64 to uint64: %d", x)
+		}
+		return uint64(x), nil
+	case uint32:
+		return uint64(x), nil
+	case uint64:
+		return x, nil
+	case []byte:
+		if len(x) == 0 {
+			return 0, nil
+		}
+		return strconv.ParseUint(string(x), 10, 64)
+	case float64:
+		if x < 0 {
+			return 0, fmt.Errorf("cannot convert negative float64 to uint64: %v", x)
+		}
+		return uint64(x), nil
+	case string:
+		if x == "" {
+			return 0, nil
+		}
+		return strconv.ParseUint(x, 10, 64)
+	default:
+		return 0, fmt.Errorf("cannot convert %T to uint64", v)
+	}
+}
+
 func toFloat64(v any) (float64, error) {
 	switch x := v.(type) {
 	case json.Number:
@@ -611,10 +989,30 @@ func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Messag
 		}
 	}
 
-	rowVals := make([]interface{}, len(columnNames))
-	for i := range rowVals {
-		rowVals[i] = new(interface{})
+	if msgFieldsMap == nil {
+		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, oldMsg.ProtoReflect().Descriptor().Fields(), true)
 	}
+	if len(columnNames)%2 != 0 {
+		return fmt.Errorf("DbScan2ProtoMsgx2 expects even column count, got %d", len(columnNames))
+	}
+
+	rowVals := make([]any, len(columnNames))
+	for i := range rowVals {
+		columnName := strings.ToLower(columnNames[i])
+		// x2 模式下列数翻倍，前半给 oldMsg，后半给 newMsg
+		// 用前半部分的字段映射来决定 dest 类型
+		lookupName := columnName
+		if i >= len(columnNames)/2 {
+			lookupName = strings.ToLower(columnNames[i-len(columnNames)/2])
+		}
+		fd, ok := msgFieldsMap[lookupName]
+		if ok {
+			rowVals[i] = allocScanDest(fd)
+		} else {
+			rowVals[i] = new(any)
+		}
+	}
+
 	err = rows.Scan(rowVals...)
 	if err != nil {
 		fmt.Println("DbScan2ProtoMsgx2 err:", err)
@@ -622,14 +1020,8 @@ func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Messag
 	}
 
 	columnNamesOld := columnNames[:len(columnNames)/2]
-	// columnNamesNew:=columnNames[len(columnNames)/2:]
-
 	oldVals := rowVals[:len(rowVals)/2]
 	newVals := rowVals[len(rowVals)/2:]
-
-	if msgFieldsMap == nil {
-		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, oldMsg.ProtoReflect().Descriptor().Fields(), true)
-	}
 
 	for i := 0; i < len(columnNamesOld); i++ {
 		columnName := strings.ToLower(columnNamesOld[i])
@@ -638,21 +1030,32 @@ func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Messag
 			fmt.Println("DbScan2ProtoMsgx2 field not found in msgFieldsMap :", columnName)
 			fmt.Println("msgFieldsMap:", msgFieldsMap)
 			continue
-
 		}
 
-		err = SetProtoMsgField(oldMsg, fieldDesc, oldVals[i])
+		err = setProtoMsgFieldDirect(oldMsg, fieldDesc, oldVals[i])
 		if err != nil {
-			fmt.Println("DbScan2ProtoMsgx2 SetProtoMsgField err:", err)
-			return err
-
+			fmt.Println("DbScan2ProtoMsgx2 setProtoMsgFieldDirect old err:", err)
+			if !canFallbackDirectError(err) {
+				return err
+			}
+			err = SetProtoMsgField(oldMsg, fieldDesc, unwrapScanVal(oldVals[i]))
+			if err != nil {
+				fmt.Println("DbScan2ProtoMsgx2 SetProtoMsgField old err:", err)
+				return err
+			}
 		}
 
-		err = SetProtoMsgField(newMsg, fieldDesc, newVals[i])
+		err = setProtoMsgFieldDirect(newMsg, fieldDesc, newVals[i])
 		if err != nil {
-			fmt.Println("DbScan2ProtoMsgx2 SetProtoMsgField err:", err)
-			return err
-
+			fmt.Println("DbScan2ProtoMsgx2 setProtoMsgFieldDirect new err:", err)
+			if !canFallbackDirectError(err) {
+				return err
+			}
+			err = SetProtoMsgField(newMsg, fieldDesc, unwrapScanVal(newVals[i]))
+			if err != nil {
+				fmt.Println("DbScan2ProtoMsgx2 SetProtoMsgField new err:", err)
+				return err
+			}
 		}
 	}
 

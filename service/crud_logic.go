@@ -276,16 +276,17 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		MsgBytes:    nil,
 		ResponseEnd: false,
 	}
+	rowScanner, err := crud.NewDbRowScanner(rows, resultMsg, fieldNames, msgFieldsMap)
+	if err != nil {
+		return sendErr(fmt.Errorf("tablequery %s create row scanner err: %w", TableQueryReq.TableName, err))
+	}
 
 	for rows.Next() {
 		// reuse resultMsg
 		proto.Reset(resultMsg)
 
 		// Scan row data
-		err = crud.DbScan2ProtoMsg(rows, resultMsg,
-			fieldNames,
-			msgFieldsMap, // msgFieldsMap will be built inside DbScan2ProtoMsg if nil
-		)
+		err = rowScanner.Scan(rows, resultMsg)
 		if err != nil {
 			return sendErr(fmt.Errorf("tablequery %s scan row data err: %w", TableQueryReq.TableName, err))
 		}
@@ -399,15 +400,16 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 		MsgBytes:    nil,
 		ResponseEnd: false,
 	}
+	rowScanner, err := crud.NewDbRowScanner(rows, resultMsg, fieldNames, msgFieldsMap)
+	if err != nil {
+		return sendErr(fmt.Errorf("create row scanner err: %w", err))
+	}
 
 	for rows.Next() {
 		proto.Reset(resultMsg)
 
 		// Scan row data
-		err = crud.DbScan2ProtoMsg(rows, resultMsg,
-			fieldNames,
-			msgFieldsMap,
-		)
+		err = rowScanner.Scan(rows, resultMsg)
 		if err != nil {
 			return sendErr(fmt.Errorf("scan row data err: %w", err))
 		}
