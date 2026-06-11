@@ -253,9 +253,16 @@ func setProtoMsgFieldMessage(msg proto.Message, fd protoreflect.FieldDescriptor,
 }
 
 type DbRowScanner struct {
-	columnNames  []string
-	msgFieldsMap map[string]protoreflect.FieldDescriptor
-	rowVals      []any
+	columnNames []string
+	fieldDescs  []protoreflect.FieldDescriptor
+	rowVals     []any
+}
+
+type DbRowPairScanner struct {
+	columnNames     []string
+	fieldDescs      []protoreflect.FieldDescriptor
+	rowVals         []any
+	halfColumnCount int
 }
 
 func NewDbRowScanner(rows *sql.Rows, msg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (*DbRowScanner, error) {
@@ -269,19 +276,21 @@ func NewDbRowScanner(rows *sql.Rows, msg proto.Message, columnNames []string, ms
 	if msgFieldsMap == nil {
 		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, msg.ProtoReflect().Descriptor().Fields(), true)
 	}
+	fieldDescs := make([]protoreflect.FieldDescriptor, len(columnNames))
 	rowVals := make([]any, len(columnNames))
 	for i := range rowVals {
 		fd, ok := msgFieldsMap[strings.ToLower(columnNames[i])]
 		if ok {
+			fieldDescs[i] = fd
 			rowVals[i] = allocScanDest(fd)
 		} else {
 			rowVals[i] = new(any)
 		}
 	}
 	return &DbRowScanner{
-		columnNames:  columnNames,
-		msgFieldsMap: msgFieldsMap,
-		rowVals:      rowVals,
+		columnNames: columnNames,
+		fieldDescs:  fieldDescs,
+		rowVals:     rowVals,
 	}, nil
 }
 
@@ -292,11 +301,9 @@ func (s *DbRowScanner) Scan(rows *sql.Rows, msg proto.Message) error {
 		return err
 	}
 	for i := 0; i < len(s.columnNames); i++ {
-		columnName := strings.ToLower(s.columnNames[i])
-		fieldDesc, ok := s.msgFieldsMap[columnName]
-		if !ok {
-			fmt.Println("DbRowScanner field not found in msgFieldsMap :", columnName)
-			fmt.Println("msgFieldsMap:", s.msgFieldsMap)
+		fieldDesc := s.fieldDescs[i]
+		if fieldDesc == nil {
+			fmt.Println("DbRowScanner field not found in msgFieldsMap :", s.columnNames[i])
 			continue
 		}
 		err = setProtoMsgFieldDirect(msg, fieldDesc, s.rowVals[i])
@@ -980,12 +987,13 @@ func parsePGArrayLiteral(s string) ([]string, error) {
 	return out, nil
 }
 
-// DbScan2ProtoMsgx2 scan db rows to proto message(oldMsg and newMsg), the proto msg has no nested message
-func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (err error) {
+// NewDbRowPairScanner creates a reusable scanner for rows shaped as old columns followed by new columns.
+func NewDbRowPairScanner(rows *sql.Rows, oldMsg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (*DbRowPairScanner, error) {
+	var err error
 	if columnNames == nil {
 		columnNames, err = rows.Columns()
 		if err != nil {
-			return err
+			return nil, err
 		}
 	}
 
@@ -993,42 +1001,50 @@ func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Messag
 		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, oldMsg.ProtoReflect().Descriptor().Fields(), true)
 	}
 	if len(columnNames)%2 != 0 {
-		return fmt.Errorf("DbScan2ProtoMsgx2 expects even column count, got %d", len(columnNames))
+		return nil, fmt.Errorf("DbScan2ProtoMsgx2 expects even column count, got %d", len(columnNames))
 	}
 
+	halfColumnCount := len(columnNames) / 2
+	fieldDescs := make([]protoreflect.FieldDescriptor, halfColumnCount)
 	rowVals := make([]any, len(columnNames))
-	for i := range rowVals {
+	for i := 0; i < halfColumnCount; i++ {
+		// x2 模式下列数翻倍，前半给 oldMsg，后半给 newMsg。
+		// 字段类型由前半部分列名决定，避免扫描后重复 lowercase/map lookup。
 		columnName := strings.ToLower(columnNames[i])
-		// x2 模式下列数翻倍，前半给 oldMsg，后半给 newMsg
-		// 用前半部分的字段映射来决定 dest 类型
-		lookupName := columnName
-		if i >= len(columnNames)/2 {
-			lookupName = strings.ToLower(columnNames[i-len(columnNames)/2])
-		}
-		fd, ok := msgFieldsMap[lookupName]
+		fd, ok := msgFieldsMap[columnName]
 		if ok {
+			fieldDescs[i] = fd
 			rowVals[i] = allocScanDest(fd)
+			rowVals[i+halfColumnCount] = allocScanDest(fd)
 		} else {
 			rowVals[i] = new(any)
+			rowVals[i+halfColumnCount] = new(any)
 		}
 	}
 
-	err = rows.Scan(rowVals...)
+	return &DbRowPairScanner{
+		columnNames:     columnNames,
+		fieldDescs:      fieldDescs,
+		rowVals:         rowVals,
+		halfColumnCount: halfColumnCount,
+	}, nil
+}
+
+func (s *DbRowPairScanner) Scan(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Message) error {
+	err := rows.Scan(s.rowVals...)
 	if err != nil {
 		fmt.Println("DbScan2ProtoMsgx2 err:", err)
 		return err
 	}
 
-	columnNamesOld := columnNames[:len(columnNames)/2]
-	oldVals := rowVals[:len(rowVals)/2]
-	newVals := rowVals[len(rowVals)/2:]
+	columnNamesOld := s.columnNames[:s.halfColumnCount]
+	oldVals := s.rowVals[:s.halfColumnCount]
+	newVals := s.rowVals[s.halfColumnCount:]
 
 	for i := 0; i < len(columnNamesOld); i++ {
-		columnName := strings.ToLower(columnNamesOld[i])
-		fieldDesc, ok := msgFieldsMap[columnName]
-		if !ok {
-			fmt.Println("DbScan2ProtoMsgx2 field not found in msgFieldsMap :", columnName)
-			fmt.Println("msgFieldsMap:", msgFieldsMap)
+		fieldDesc := s.fieldDescs[i]
+		if fieldDesc == nil {
+			fmt.Println("DbScan2ProtoMsgx2 field not found in msgFieldsMap :", columnNamesOld[i])
 			continue
 		}
 
@@ -1060,4 +1076,13 @@ func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Messag
 	}
 
 	return nil
+}
+
+// DbScan2ProtoMsgx2 scan db rows to proto message(oldMsg and newMsg), the proto msg has no nested message
+func DbScan2ProtoMsgx2(rows *sql.Rows, oldMsg proto.Message, newMsg proto.Message, columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) (err error) {
+	scanner, err := NewDbRowPairScanner(rows, oldMsg, columnNames, msgFieldsMap)
+	if err != nil {
+		return err
+	}
+	return scanner.Scan(rows, oldMsg, newMsg)
 }

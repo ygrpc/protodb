@@ -24,7 +24,12 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 		return "", nil, err
 	}
 
+	dbdialect := sqldb.GetExecutorDialect(db)
+	placeholder := dbdialect.Placeholder()
+	dbtableName := sqldb.BuildDbTableName(tableQueryReq.TableName, tableQueryReq.SchemeName, dbdialect)
+
 	sb := strings.Builder{}
+	sb.Grow(tableQueryBuildSQLCap(tableQueryReq, permissionSqlStr, len(permissionSqlVals), dbtableName, placeholder))
 	sb.WriteString(protosql.SQL_SELECT)
 
 	// Handle result columns
@@ -37,12 +42,9 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 	sb.WriteString(protosql.SQL_FROM)
 
 	// Build table name
-	dbdialect := sqldb.GetExecutorDialect(db)
-	dbtableName := sqldb.BuildDbTableName(tableQueryReq.TableName, tableQueryReq.SchemeName, dbdialect)
 	sb.WriteString(dbtableName)
 
 	// Handle WHERE clauses
-	placeholder := dbdialect.Placeholder()
 	sqlParaNo := 1
 
 	firstPlaceholder := true
@@ -70,12 +72,6 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 			}
 			firstPlaceholder = false
 
-			//check fieldname security
-			err = checkSQLColumnsIsNoInjectionInWhere(fieldName)
-			if err != nil {
-				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldName, err)
-			}
-
 			sb.WriteString(fieldName)
 			sb.WriteString(protosql.SQL_EQUEAL)
 
@@ -83,7 +79,7 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 				sb.WriteString(string(protosql.SQL_QUESTION))
 			} else {
 				sb.WriteString(string(protosql.SQL_DOLLAR))
-				sb.WriteString(fmt.Sprint(sqlParaNo))
+				sb.WriteString(strconv.Itoa(sqlParaNo))
 				sqlParaNo++
 			}
 
@@ -105,12 +101,6 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 			fieldWhereOperator, ok := tableQueryReq.Where2Operator[fieldname]
 			if !ok {
 				return "", nil, fmt.Errorf("where2 field %s has no operator provided", fieldname)
-			}
-
-			//check fieldname security
-			err = checkSQLColumnsIsNoInjectionInWhere(fieldname)
-			if err != nil {
-				return "", nil, fmt.Errorf("check fieldname %s err: %w", fieldname, err)
 			}
 
 			if firstPlaceholder {
@@ -138,16 +128,82 @@ func TableQueryBuildSql(db sqldb.DB, msgDesc protoreflect.MessageDescriptor, tab
 	// Add LIMIT and OFFSET if specified
 	if tableQueryReq.Limit > 0 {
 		sb.WriteString(protosql.SQL_LIMIT)
-		sb.WriteString(fmt.Sprint(tableQueryReq.Limit))
+		sb.WriteString(strconv.FormatInt(int64(tableQueryReq.Limit), 10))
 	}
 
 	if tableQueryReq.Offset > 0 {
 		sb.WriteString(protosql.SQL_OFFSET)
-		sb.WriteString(fmt.Sprint(tableQueryReq.Offset))
+		sb.WriteString(strconv.FormatInt(tableQueryReq.Offset, 10))
 	}
 
 	sqlStr = sb.String()
 	return sqlStr, sqlVals, nil
+}
+
+func tableQueryBuildSQLCap(tableQueryReq *protodb.TableQueryReq, permissionSqlStr string, permissionSqlValCount int, dbtableName string, placeholder protosql.SQLPlaceholder) int {
+	capacity := len(protosql.SQL_SELECT)
+	if len(tableQueryReq.ResultColumnNames) == 0 {
+		capacity += len(protosql.SQL_ASTERISK)
+	} else {
+		for i, columnName := range tableQueryReq.ResultColumnNames {
+			if i > 0 {
+				capacity += len(protosql.SQL_COMMA)
+			}
+			capacity += len(columnName)
+		}
+	}
+
+	capacity += len(protosql.SQL_FROM) + len(dbtableName)
+
+	firstPlaceholder := true
+	sqlParaNo := 1
+	if len(tableQueryReq.Where) > 0 || len(permissionSqlStr) > 0 {
+		capacity += len(protosql.SQL_WHERE)
+		if len(permissionSqlStr) > 0 {
+			capacity += len(protosql.SQL_LEFT_PARENTHESES) + len(permissionSqlStr) + len(protosql.SQL_RIGHT_PARENTHESES)
+			firstPlaceholder = false
+			sqlParaNo += permissionSqlValCount
+		}
+		for fieldName := range tableQueryReq.Where {
+			if !firstPlaceholder {
+				capacity += len(protosql.SQL_AND)
+			}
+			firstPlaceholder = false
+			capacity += len(fieldName) + len(protosql.SQL_EQUEAL) + sqlPlaceholderCap(placeholder, sqlParaNo)
+			if placeholder != protosql.SQL_QUESTION {
+				sqlParaNo++
+			}
+		}
+	}
+
+	if len(tableQueryReq.Where2) > 0 {
+		if firstPlaceholder {
+			capacity += len(protosql.SQL_WHERE)
+		}
+		for fieldName := range tableQueryReq.Where2 {
+			if firstPlaceholder {
+				firstPlaceholder = false
+			} else {
+				capacity += len(protosql.SQL_AND)
+			}
+			capacity += tableQueryWhere2ConditionCap(fieldName, placeholder, sqlParaNo)
+			if placeholder != protosql.SQL_QUESTION {
+				sqlParaNo++
+			}
+		}
+	}
+
+	if tableQueryReq.Limit > 0 {
+		capacity += len(protosql.SQL_LIMIT) + decimalDigitCount64(int64(tableQueryReq.Limit))
+	}
+	if tableQueryReq.Offset > 0 {
+		capacity += len(protosql.SQL_OFFSET) + decimalDigitCount64(tableQueryReq.Offset)
+	}
+	return capacity
+}
+
+func tableQueryWhere2ConditionCap(fieldName string, placeholder protosql.SQLPlaceholder, paraNo int) int {
+	return 192 + len(fieldName)*3 + sqlPlaceholderCap(placeholder, paraNo)*2
 }
 
 // validateTableQueryIdentifiers keeps RPC-supplied table/condition identifiers tied to the proto descriptor.
@@ -439,7 +495,7 @@ func buildPlaceholder(placeholder protosql.SQLPlaceholder, paraNo int) string {
 	if placeholder == protosql.SQL_QUESTION {
 		return string(protosql.SQL_QUESTION)
 	}
-	return string(protosql.SQL_DOLLAR) + fmt.Sprint(paraNo)
+	return string(protosql.SQL_DOLLAR) + strconv.Itoa(paraNo)
 }
 
 func lenOpToSql(op protodb.WhereOperator) string {

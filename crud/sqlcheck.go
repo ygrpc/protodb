@@ -18,23 +18,10 @@ const (
 // Lookup table for allowed expression operators - O(1) lookup instead of strings.ContainsRune
 var allowedExprChars = [256]bool{}
 
-// Dangerous SQL keywords map for O(1) lookup
-var dangerousKeywords = map[string]bool{}
-
 func init() {
 	// Initialize lookup table for allowed expression characters
 	for _, c := range "()+-*/%:[]><,='" {
 		allowedExprChars[c] = true
-	}
-
-	// Initialize dangerous keywords map (case-insensitive)
-	keywords := []string{
-		"select", "union", "from", "join", "update", "delete", "insert",
-		"drop", "alter", "truncate", "grant", "revoke", "exec", "execute",
-		"prepare", "declare", "or", "and", "sleep", "benchmark", "pg_sleep",
-	}
-	for _, kw := range keywords {
-		dangerousKeywords[kw] = true
 	}
 }
 
@@ -106,14 +93,6 @@ func validateIdentifier(name string) error {
 	return nil
 }
 
-// toLowerCase converts ASCII character to lowercase
-func toLowerCase(c rune) rune {
-	if c >= 'A' && c <= 'Z' {
-		return c + ('a' - 'A')
-	}
-	return c
-}
-
 // Relaxed validation for Expressions
 // Optimized: Complete single-pass validation
 // 1. Character whitelist + comment detection
@@ -135,10 +114,10 @@ func validateExpression(expr string) error {
 	prevChar := rune(0)
 
 	// For keyword detection
-	var currentWord []rune
+	wordStart := 0
 	inWord := false
 
-	for _, c := range expr {
+	for i, c := range expr {
 		// Check for comment patterns (-- and /*)
 		if c == '-' && prevChar == '-' {
 			return fmt.Errorf("expression contains comment identifier '--'")
@@ -177,15 +156,14 @@ func validateExpression(expr string) error {
 
 		if isLetter {
 			if !inWord {
-				currentWord = currentWord[:0] // Reset word
+				wordStart = i
 				inWord = true
 			}
-			currentWord = append(currentWord, toLowerCase(c))
 		} else {
 			// End of word - check if it's dangerous
-			if inWord && len(currentWord) > 0 {
-				if dangerousKeywords[string(currentWord)] {
-					return fmt.Errorf("expression contains dangerous keyword '%s'", string(currentWord))
+			if inWord {
+				if isDangerousKeywordRange(expr, wordStart, i) {
+					return fmt.Errorf("expression contains dangerous keyword '%s'", expr[wordStart:i])
 				}
 				inWord = false
 			}
@@ -223,9 +201,9 @@ func validateExpression(expr string) error {
 	}
 
 	// Check last word if any
-	if inWord && len(currentWord) > 0 {
-		if dangerousKeywords[string(currentWord)] {
-			return fmt.Errorf("expression contains dangerous keyword '%s'", string(currentWord))
+	if inWord {
+		if isDangerousKeywordRange(expr, wordStart, len(expr)) {
+			return fmt.Errorf("expression contains dangerous keyword '%s'", expr[wordStart:])
 		}
 	}
 
@@ -238,4 +216,53 @@ func validateExpression(expr string) error {
 	}
 
 	return nil
+}
+
+func isDangerousKeywordRange(s string, start int, end int) bool {
+	switch end - start {
+	case 2:
+		return asciiEqualFoldRange(s, start, "or")
+	case 3:
+		return asciiEqualFoldRange(s, start, "and")
+	case 4:
+		return asciiEqualFoldRange(s, start, "from") ||
+			asciiEqualFoldRange(s, start, "join") ||
+			asciiEqualFoldRange(s, start, "drop") ||
+			asciiEqualFoldRange(s, start, "exec")
+	case 5:
+		return asciiEqualFoldRange(s, start, "union") ||
+			asciiEqualFoldRange(s, start, "alter") ||
+			asciiEqualFoldRange(s, start, "grant") ||
+			asciiEqualFoldRange(s, start, "sleep")
+	case 6:
+		return asciiEqualFoldRange(s, start, "select") ||
+			asciiEqualFoldRange(s, start, "update") ||
+			asciiEqualFoldRange(s, start, "delete") ||
+			asciiEqualFoldRange(s, start, "insert") ||
+			asciiEqualFoldRange(s, start, "revoke")
+	case 7:
+		return asciiEqualFoldRange(s, start, "execute") ||
+			asciiEqualFoldRange(s, start, "prepare") ||
+			asciiEqualFoldRange(s, start, "declare")
+	case 8:
+		return asciiEqualFoldRange(s, start, "truncate") ||
+			asciiEqualFoldRange(s, start, "pg_sleep")
+	case 9:
+		return asciiEqualFoldRange(s, start, "benchmark")
+	default:
+		return false
+	}
+}
+
+func asciiEqualFoldRange(s string, start int, lower string) bool {
+	for i := 0; i < len(lower); i++ {
+		c := s[start+i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		if c != lower[i] {
+			return false
+		}
+	}
+	return true
 }

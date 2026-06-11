@@ -169,7 +169,7 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 
 		fieldName := string(field.Name())
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			err = fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 			return "", nil, err

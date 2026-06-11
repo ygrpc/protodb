@@ -3,6 +3,7 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ygrpc/protodb"
@@ -120,17 +121,9 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	msgFieldDescs protoreflect.FieldDescriptors,
 	dbdialect sqldb.TDBDialect, returnUpdated bool,
 ) (sqlStr string, sqlVals []interface{}, err error) {
-	sb := strings.Builder{}
-	sb.WriteString(protosql.SQL_UPDATE)
-
 	dbtableName := sqldb.BuildDbTableName(tableName, dbschema, dbdialect)
-	sb.WriteString(dbtableName)
-	sb.WriteString(protosql.SQL_SET)
+	valFieldNames := make([]string, 0, msgFieldDescs.Len())
 
-	valFieldNames := make([]string, 0)
-
-	firstPlaceholder := true
-	sqlParaNo := 1
 	placeholder := dbdialect.Placeholder()
 	primaryKeyFieldNames := pdbutil.GetPrimaryKeyFieldDescs(msgDesc, msgFieldDescs, false)
 
@@ -162,7 +155,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			err = fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 			return "", nil, err
@@ -188,6 +181,17 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 		sqlVals = append(sqlVals, val)
 	}
 
+	returningUpdated := returnUpdated && mysqlSupportsReturning(dbdialect)
+
+	sb := strings.Builder{}
+	sb.Grow(dbBuildSqlUpdateCap(dbtableName, valFieldNames, primaryKeyFieldNames, placeholder, returningUpdated))
+	sb.WriteString(protosql.SQL_UPDATE)
+	sb.WriteString(dbtableName)
+	sb.WriteString(protosql.SQL_SET)
+
+	firstPlaceholder := true
+	sqlParaNo := 1
+
 	for _, fieldName := range valFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
@@ -202,7 +206,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -211,7 +215,7 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 
 	firstPlaceholder = true
 
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -225,18 +229,18 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}
 		sqlVals = append(sqlVals, val)
 	}
 
-	if returnUpdated && mysqlSupportsReturning(dbdialect) {
+	if returningUpdated {
 		sb.WriteString(" RETURNING * ")
 	}
 
@@ -244,6 +248,39 @@ func dbBuildSqlUpdate(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 	sqlStr = sb.String()
 
 	return sqlStr, sqlVals, nil
+}
+
+func dbBuildSqlUpdateCap(dbtableName string, valFieldNames []string, primaryKeyFieldNames map[string]protoreflect.FieldDescriptor, placeholder protosql.SQLPlaceholder, returningUpdated bool) int {
+	capacity := len(protosql.SQL_UPDATE) + len(dbtableName) + len(protosql.SQL_SET)
+	sqlParaNo := 1
+
+	for i, fieldName := range valFieldNames {
+		if i > 0 {
+			capacity += len(protosql.SQL_COMMA)
+		}
+		capacity += len(fieldName) + len(protosql.SQL_EQUEAL) + sqlPlaceholderCap(placeholder, sqlParaNo)
+		if placeholder != protosql.SQL_QUESTION {
+			sqlParaNo++
+		}
+	}
+
+	capacity += len(protosql.SQL_WHERE)
+	i := 0
+	for fieldName := range primaryKeyFieldNames {
+		if i > 0 {
+			capacity += len(protosql.SQL_AND)
+		}
+		capacity += len(fieldName) + len(protosql.SQL_EQUEAL) + sqlPlaceholderCap(placeholder, sqlParaNo)
+		if placeholder != protosql.SQL_QUESTION {
+			sqlParaNo++
+		}
+		i++
+	}
+
+	if returningUpdated {
+		capacity += len(" RETURNING * ")
+	}
+	return capacity + len(protosql.SQL_SEMICOLON)
 }
 
 // dbUpdateReturnOldAndNew updates a message in db and returns both old and new messages
@@ -327,7 +364,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 	firstPlaceholder := true
 	sqlParaNo := 1
 
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -341,11 +378,11 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}
@@ -386,7 +423,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			err = fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 			return "", nil, err
@@ -427,7 +464,7 @@ func dbBuildSqlUpdateOldAndNew(msgobj proto.Message, msgLastFieldNo int32, dbsch
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -501,7 +538,7 @@ func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32,
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			return "", nil, fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 		}
@@ -544,7 +581,7 @@ func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32,
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -552,7 +589,7 @@ func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32,
 	// WHERE by primary keys
 	sb.WriteString(protosql.SQL_WHERE)
 	firstPlaceholder = true
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -564,12 +601,12 @@ func dbBuildSqlUpdateOldAndNewNative(msgobj proto.Message, msgLastFieldNo int32,
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
 		// Append PK values after SET values
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}

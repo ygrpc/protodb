@@ -140,7 +140,7 @@ func dbBuildSqlDelete(msgobj proto.Message, dbschema string, tableName string,
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldDesc.TextName())
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}

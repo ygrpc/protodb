@@ -73,18 +73,20 @@ type DBWithDialect struct {
 // NewDBWithDialect creates a new DBWithDialect from a *sql.DB.
 // The dialect is automatically detected from the database driver.
 func NewDBWithDialect(db *sql.DB) *DBWithDialect {
+	dialect, _ := GetDBDialectCache(db)
 	return &DBWithDialect{
 		Executor: db,
-		Dialect:  GetDBDialect(db),
+		Dialect:  dialect,
 	}
 }
 
 // NewTxWithDialect creates a new DBWithDialect from a *sql.Tx and a *sql.DB.
 // The dialect is detected from the *sql.DB since *sql.Tx doesn't expose driver info.
 func NewTxWithDialect(tx *sql.Tx, db *sql.DB) *DBWithDialect {
+	dialect, _ := GetDBDialectCache(db)
 	return &DBWithDialect{
 		Executor: tx,
-		Dialect:  GetDBDialect(db),
+		Dialect:  dialect,
 	}
 }
 
@@ -156,7 +158,8 @@ var (
 func GetsqlDBDialect(executor DB) TDBDialect {
 	switch e := executor.(type) {
 	case *sql.DB:
-		return GetDBDialect(e)
+		dialect, _ := GetDBDialectCache(e)
+		return dialect
 	case *DBWithDialect:
 		return e.Dialect
 	default:

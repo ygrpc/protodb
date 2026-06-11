@@ -3,6 +3,7 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ygrpc/protodb/pdbutil"
@@ -143,11 +144,17 @@ func dbBuildSqlSelectOne(msg proto.Message, keyColumns []string, resultColumns [
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msg, fieldName)
+		fieldDesc := msgDesc.Fields().ByName(protoreflect.Name(fieldName))
+		var val any
+		if fieldDesc == nil {
+			val, err = pdbutil.GetField(msg, fieldName)
+		} else {
+			val, err = getSQLFieldValue(msg, fieldDesc)
+		}
 		if err != nil {
 			return "", nil, err
 		}

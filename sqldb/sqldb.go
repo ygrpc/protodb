@@ -24,6 +24,7 @@ const (
 
 type TDBDialectCacheItem struct {
 	DB          *sql.DB
+	Dialect     TDBDialect
 	Placeholder protosql.SQLPlaceholder
 	CacheTime   time.Time
 }
@@ -104,6 +105,7 @@ func GetDBPlaceholderCache(db *sql.DB) (protosql.SQLPlaceholder, TDBDialectCache
 
 	item := TDBDialectCacheItem{
 		DB:          db,
+		Dialect:     dialect,
 		Placeholder: placeholder,
 		CacheTime:   time.Now(),
 	}
@@ -111,6 +113,24 @@ func GetDBPlaceholderCache(db *sql.DB) (protosql.SQLPlaceholder, TDBDialectCache
 	dbDialectCache.Store(db, item)
 
 	return placeholder, item
+}
+
+// GetDBDialectCache gets the dialect of sql.db and caches it by db handle.
+func GetDBDialectCache(db *sql.DB) (TDBDialect, TDBDialectCacheItem) {
+	if item, ok := dbDialectCache.Load(db); ok {
+		return item.Dialect, item
+	}
+
+	dialect := GetDBDialect(db)
+	item := TDBDialectCacheItem{
+		DB:          db,
+		Dialect:     dialect,
+		Placeholder: dialect.Placeholder(),
+		CacheTime:   time.Now(),
+	}
+
+	dbDialectCache.Store(db, item)
+	return dialect, item
 }
 
 // clear db dialect cache
@@ -153,7 +173,8 @@ func BuildDbTableName(tableName string, dbschema string, dbdialect TDBDialect) s
 func GetExecutorDialect(executor DB) TDBDialect {
 	switch e := executor.(type) {
 	case *sql.DB:
-		return GetDBDialect(e)
+		dialect, _ := GetDBDialectCache(e)
+		return dialect
 	case *DBWithDialect:
 		return e.Dialect
 	default:

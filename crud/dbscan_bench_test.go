@@ -1,6 +1,7 @@
 package crud
 
 import (
+	"strings"
 	"testing"
 
 	"google.golang.org/protobuf/reflect/protodesc"
@@ -75,5 +76,69 @@ func BenchmarkSetProtoMsgField_Direct(b *testing.B) {
 		_ = setProtoMsgFieldDirect(msg, fields.ByName("hash"), int64(12345))
 		_ = setProtoMsgFieldDirect(msg, fields.ByName("data"), []byte("raw"))
 		_ = setProtoMsgFieldDirect(msg, fields.ByName("status"), int64(1))
+	}
+}
+
+var benchScanColumnNames = []string{"id", "name", "active", "score", "amount", "count", "flags", "status"}
+
+var benchScanRowVals = []any{
+	int64(42),
+	"hello",
+	true,
+	float64(3.14),
+	float64(2.718),
+	int64(100),
+	int64(7),
+	int64(1),
+}
+
+func BenchmarkDbRowScannerAssign_MapLookup(b *testing.B) {
+	fields := benchMsgDesc.Fields()
+	msgFieldsMap := map[string]protoreflect.FieldDescriptor{
+		"id":     fields.ByName("id"),
+		"name":   fields.ByName("name"),
+		"active": fields.ByName("active"),
+		"score":  fields.ByName("score"),
+		"amount": fields.ByName("amount"),
+		"count":  fields.ByName("count"),
+		"flags":  fields.ByName("flags"),
+		"status": fields.ByName("status"),
+	}
+	msg := dynamicpb.NewMessage(benchMsgDesc)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j, columnName := range benchScanColumnNames {
+			fieldDesc := msgFieldsMap[strings.ToLower(columnName)]
+			if err := setProtoMsgFieldDirect(msg, fieldDesc, benchScanRowVals[j]); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func BenchmarkDbRowScannerAssign_PrecomputedDescriptors(b *testing.B) {
+	fields := benchMsgDesc.Fields()
+	fieldDescs := []protoreflect.FieldDescriptor{
+		fields.ByName("id"),
+		fields.ByName("name"),
+		fields.ByName("active"),
+		fields.ByName("score"),
+		fields.ByName("amount"),
+		fields.ByName("count"),
+		fields.ByName("flags"),
+		fields.ByName("status"),
+	}
+	msg := dynamicpb.NewMessage(benchMsgDesc)
+
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for j, fieldDesc := range fieldDescs {
+			if err := setProtoMsgFieldDirect(msg, fieldDesc, benchScanRowVals[j]); err != nil {
+				b.Fatal(err)
+			}
+		}
 	}
 }

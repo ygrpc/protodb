@@ -3,6 +3,7 @@ package crud
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/ygrpc/protodb"
@@ -224,7 +225,7 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			err = fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 			return "", nil, err
@@ -270,7 +271,7 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -279,7 +280,7 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 
 	firstPlaceholder = true
 
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -293,11 +294,11 @@ func dbBuildSqlUpdatePartial(msgobj proto.Message, updateFields []string, dbsche
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}
@@ -339,7 +340,7 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 	firstPlaceholder := true
 	sqlParaNo := 1
 
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -353,11 +354,11 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}
@@ -396,7 +397,7 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			err = fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 			return "", nil, err
@@ -435,7 +436,7 @@ func dbBuildSqlUpdatePartialOldAndNew(msgobj proto.Message, updateFields []strin
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -509,7 +510,7 @@ func dbBuildSqlUpdatePartialOldAndNewNative(msgobj proto.Message, updateFields [
 
 		valFieldNames = append(valFieldNames, fieldName)
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, field)
 		if err != nil {
 			return "", nil, fmt.Errorf("get field err: %s.%s %w", msgDesc.Name(), fieldName, err)
 		}
@@ -554,7 +555,7 @@ func dbBuildSqlUpdatePartialOldAndNewNative(msgobj proto.Message, updateFields [
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 	}
@@ -562,7 +563,7 @@ func dbBuildSqlUpdatePartialOldAndNewNative(msgobj proto.Message, updateFields [
 	// WHERE clause by primary keys; append PK values after SET values
 	sb.WriteString(protosql.SQL_WHERE)
 	firstPlaceholder = true
-	for fieldName := range primaryKeyFieldNames {
+	for fieldName, fieldDesc := range primaryKeyFieldNames {
 		if firstPlaceholder {
 			firstPlaceholder = false
 		} else {
@@ -574,11 +575,11 @@ func dbBuildSqlUpdatePartialOldAndNewNative(msgobj proto.Message, updateFields [
 			sb.WriteString(string(protosql.SQL_QUESTION))
 		} else {
 			sb.WriteString(string(protosql.SQL_DOLLAR))
-			sb.WriteString(fmt.Sprint(sqlParaNo))
+			sb.WriteString(strconv.Itoa(sqlParaNo))
 			sqlParaNo++
 		}
 
-		val, err := pdbutil.GetField(msgobj, fieldName)
+		val, err := getSQLFieldValue(msgobj, fieldDesc)
 		if err != nil {
 			return "", nil, err
 		}

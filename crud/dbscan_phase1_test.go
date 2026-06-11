@@ -176,6 +176,9 @@ func TestDbRowScanner_ReusesDestAcrossRows(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewDbRowScanner: %v", err)
 	}
+	idDest := scanner.rowVals[0]
+	nameDest := scanner.rowVals[1]
+	dataDest := scanner.rowVals[4]
 
 	if !rows.Next() {
 		t.Fatal("expected first row")
@@ -193,6 +196,9 @@ func TestDbRowScanner_ReusesDestAcrossRows(t *testing.T) {
 	}
 	if err := scanner.Scan(rows, msg); err != nil {
 		t.Fatalf("Scan second row: %v", err)
+	}
+	if scanner.rowVals[0] != idDest || scanner.rowVals[1] != nameDest || scanner.rowVals[4] != dataDest {
+		t.Fatal("scan destinations were replaced instead of reused")
 	}
 	pm := msg.ProtoReflect()
 	if got := pm.Get(msgDesc.Fields().ByName("id")).Int(); got != 2 {
@@ -234,6 +240,77 @@ func TestDbScan2ProtoMsgx2_OddColumnCountReturnsError(t *testing.T) {
 	err = DbScan2ProtoMsgx2(rows, oldMsg, newMsg, columns, pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true))
 	if err == nil || !strings.Contains(err.Error(), "even column count") {
 		t.Fatalf("expected even column count error, got %v", err)
+	}
+}
+
+func TestDbRowPairScanner_ReusesDestAcrossRows(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	columns := []string{"id", "name", "active", "id", "name", "active"}
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).
+		AddRow(int64(1), "old1", true, int64(2), "new1", false).
+		AddRow(int64(3), nil, false, int64(4), "new2", true))
+
+	rows, err := db.Query("SELECT")
+	if err != nil {
+		t.Fatalf("db.Query: %v", err)
+	}
+	defer rows.Close()
+
+	msgDesc := buildPhase1ScanMsgDesc(t)
+	oldMsg := dynamicpb.NewMessage(msgDesc)
+	newMsg := dynamicpb.NewMessage(msgDesc)
+	scanner, err := NewDbRowPairScanner(rows, oldMsg, columns, pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true))
+	if err != nil {
+		t.Fatalf("NewDbRowPairScanner: %v", err)
+	}
+	oldIDDest := scanner.rowVals[0]
+	oldNameDest := scanner.rowVals[1]
+	newIDDest := scanner.rowVals[3]
+	newNameDest := scanner.rowVals[4]
+
+	if !rows.Next() {
+		t.Fatal("expected first row")
+	}
+	if err := scanner.Scan(rows, oldMsg, newMsg); err != nil {
+		t.Fatalf("Scan first row: %v", err)
+	}
+	if got := oldMsg.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "old1" {
+		t.Fatalf("first old name = %q", got)
+	}
+	if got := newMsg.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "new1" {
+		t.Fatalf("first new name = %q", got)
+	}
+
+	oldMsg.Reset()
+	newMsg.Reset()
+	if !rows.Next() {
+		t.Fatal("expected second row")
+	}
+	if err := scanner.Scan(rows, oldMsg, newMsg); err != nil {
+		t.Fatalf("Scan second row: %v", err)
+	}
+	if scanner.rowVals[0] != oldIDDest || scanner.rowVals[1] != oldNameDest || scanner.rowVals[3] != newIDDest || scanner.rowVals[4] != newNameDest {
+		t.Fatal("scan destinations were replaced instead of reused")
+	}
+	if got := oldMsg.ProtoReflect().Get(msgDesc.Fields().ByName("id")).Int(); got != 3 {
+		t.Fatalf("second old id = %d", got)
+	}
+	if oldMsg.ProtoReflect().Has(msgDesc.Fields().ByName("name")) {
+		t.Fatal("second old name should be unset for NULL")
+	}
+	if got := newMsg.ProtoReflect().Get(msgDesc.Fields().ByName("id")).Int(); got != 4 {
+		t.Fatalf("second new id = %d", got)
+	}
+	if got := newMsg.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "new2" {
+		t.Fatalf("second new name = %q", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
 	}
 }
 
