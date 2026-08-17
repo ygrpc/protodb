@@ -99,6 +99,22 @@ func (n *nullBytes) Scan(src any) error {
 	}
 }
 
+type protoFieldReceiver struct {
+	msg proto.Message
+	fd  protoreflect.FieldDescriptor
+}
+
+func (r *protoFieldReceiver) Scan(src any) error {
+	err := setProtoMsgFieldDirect(r.msg, r.fd, src)
+	if err == nil {
+		return nil
+	}
+	if !canFallbackDirectError(err) {
+		return err
+	}
+	return SetProtoMsgField(r.msg, r.fd, src)
+}
+
 type directNoFallbackError struct {
 	err error
 }
@@ -141,6 +157,18 @@ func setProtoMsgFieldDirect(msg proto.Message, fd protoreflect.FieldDescriptor, 
 			pm.Set(fd, protoreflect.ValueOfBool(x))
 		case int64:
 			pm.Set(fd, protoreflect.ValueOfBool(x != 0))
+		case string:
+			b, err := strconv.ParseBool(x)
+			if err != nil {
+				return fmt.Errorf("bool field expects bool, got string %q: %w", x, err)
+			}
+			pm.Set(fd, protoreflect.ValueOfBool(b))
+		case []byte:
+			b, err := strconv.ParseBool(string(x))
+			if err != nil {
+				return fmt.Errorf("bool field expects bool, got []byte %q: %w", x, err)
+			}
+			pm.Set(fd, protoreflect.ValueOfBool(b))
 		default:
 			return fmt.Errorf("bool field expects bool/int64, got %T", val)
 		}
@@ -190,6 +218,8 @@ func setProtoMsgFieldDirect(msg proto.Message, fd protoreflect.FieldDescriptor, 
 		switch x := val.(type) {
 		case string:
 			pm.Set(fd, protoreflect.ValueOfString(x))
+		case []byte:
+			pm.Set(fd, protoreflect.ValueOfString(string(x)))
 		default:
 			pm.Set(fd, protoreflect.ValueOfString(fmt.Sprint(val)))
 		}
@@ -253,9 +283,8 @@ func setProtoMsgFieldMessage(msg proto.Message, fd protoreflect.FieldDescriptor,
 }
 
 type DbRowScanner struct {
-	columnNames []string
-	fieldDescs  []protoreflect.FieldDescriptor
-	rowVals     []any
+	rowVals []any
+	msg     proto.Message
 }
 
 type DbRowPairScanner struct {
@@ -276,48 +305,34 @@ func NewDbRowScanner(rows *sql.Rows, msg proto.Message, columnNames []string, ms
 	if msgFieldsMap == nil {
 		msgFieldsMap = pdbutil.BuildMsgFieldsMap(columnNames, msg.ProtoReflect().Descriptor().Fields(), true)
 	}
-	fieldDescs := make([]protoreflect.FieldDescriptor, len(columnNames))
 	rowVals := make([]any, len(columnNames))
 	for i := range rowVals {
 		fd, ok := msgFieldsMap[strings.ToLower(columnNames[i])]
 		if ok {
-			fieldDescs[i] = fd
-			rowVals[i] = allocScanDest(fd)
+			rowVals[i] = &protoFieldReceiver{msg: msg, fd: fd}
 		} else {
 			rowVals[i] = new(any)
 		}
 	}
 	return &DbRowScanner{
-		columnNames: columnNames,
-		fieldDescs:  fieldDescs,
-		rowVals:     rowVals,
+		rowVals: rowVals,
+		msg:     msg,
 	}, nil
 }
 
 func (s *DbRowScanner) Scan(rows *sql.Rows, msg proto.Message) error {
+	if msg != s.msg {
+		s.msg = msg
+		for i := range s.rowVals {
+			if r, ok := s.rowVals[i].(*protoFieldReceiver); ok {
+				r.msg = msg
+			}
+		}
+	}
 	err := rows.Scan(s.rowVals...)
 	if err != nil {
 		fmt.Println("DbRowScanner Scan err:", err)
 		return err
-	}
-	for i := 0; i < len(s.columnNames); i++ {
-		fieldDesc := s.fieldDescs[i]
-		if fieldDesc == nil {
-			fmt.Println("DbRowScanner field not found in msgFieldsMap :", s.columnNames[i])
-			continue
-		}
-		err = setProtoMsgFieldDirect(msg, fieldDesc, s.rowVals[i])
-		if err != nil {
-			fmt.Println("DbRowScanner setProtoMsgFieldDirect err:", err)
-			if !canFallbackDirectError(err) {
-				return err
-			}
-			err = SetProtoMsgField(msg, fieldDesc, unwrapScanVal(s.rowVals[i]))
-			if err != nil {
-				fmt.Println("DbRowScanner SetProtoMsgField err:", err)
-				return err
-			}
-		}
 	}
 	return nil
 }
@@ -866,6 +881,20 @@ func toInt64(v any) (int64, error) {
 			return int64(u), nil
 		}
 		return 0, err
+	case []byte:
+		if len(x) == 0 {
+			return 0, nil
+		}
+		s := string(x)
+		i, err := strconv.ParseInt(s, 10, 64)
+		if err == nil {
+			return i, nil
+		}
+		u, err2 := strconv.ParseUint(s, 10, 64)
+		if err2 == nil {
+			return int64(u), nil
+		}
+		return 0, err
 	default:
 		return 0, fmt.Errorf("cannot convert %T to int64", v)
 	}
@@ -937,6 +966,11 @@ func toFloat64(v any) (float64, error) {
 			return 0, nil
 		}
 		return strconv.ParseFloat(x, 64)
+	case []byte:
+		if len(x) == 0 {
+			return 0, nil
+		}
+		return strconv.ParseFloat(string(x), 64)
 	default:
 		return 0, fmt.Errorf("cannot convert %T to float64", v)
 	}

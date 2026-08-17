@@ -330,4 +330,143 @@ func TestUnwrapScanVal_NullableTypes(t *testing.T) {
 	if got := unwrapScanVal(&sql.NullFloat64{Float64: 1.25, Valid: true}); got != float64(1.25) {
 		t.Fatalf("NullFloat64 = %#v", got)
 	}
+	if got := unwrapScanVal(&nullBytes{Bytes: []byte("hello"), Valid: true}); string(got.([]byte)) != "hello" {
+		t.Fatalf("nullBytes = %#v", got)
+	}
+	if got := unwrapScanVal(&nullBytes{Bytes: []byte("hello"), Valid: false}); got != nil {
+		t.Fatalf("invalid nullBytes = %#v", got)
+	}
+	if got := unwrapScanVal(nullBytes{Bytes: []byte("hello"), Valid: true}); string(got.([]byte)) != "hello" {
+		t.Fatalf("nullBytes value = %#v", got)
+	}
+	if got := unwrapScanVal(nullBytes{Bytes: []byte("hello"), Valid: false}); got != nil {
+		t.Fatalf("invalid nullBytes value = %#v", got)
+	}
+	if got := unwrapScanVal(&nullUint64{Uint64: 42, Valid: true}); got != uint64(42) {
+		t.Fatalf("nullUint64 = %#v", got)
+	}
+	if got := unwrapScanVal(&nullUint64{Uint64: 42, Valid: false}); got != nil {
+		t.Fatalf("invalid nullUint64 = %#v", got)
+	}
+	if got := unwrapScanVal(nullUint64{Uint64: 42, Valid: true}); got != uint64(42) {
+		t.Fatalf("nullUint64 value = %#v", got)
+	}
+	if got := unwrapScanVal(nullUint64{Uint64: 42, Valid: false}); got != nil {
+		t.Fatalf("invalid nullUint64 value = %#v", got)
+	}
+}
+
+// TestProtoFieldReceiver_DriverByteCompatibility 验证驱动返回 []byte（如 MySQL）时各类型正确转换
+func TestProtoFieldReceiver_DriverByteCompatibility(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	columns := []string{"id", "name", "active", "score", "data", "hash"}
+	// 模拟驱动返回 []byte 而非原生类型（MySQL 常见行为）
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).AddRow(
+		[]byte("42"),    // int64 列返回 []byte
+		[]byte("alice"), // string 列返回 []byte
+		[]byte("true"),  // bool 列返回 []byte
+		[]byte("3.14"),  // float64 列返回 []byte
+		[]byte("raw"),   // bytes 列返回 []byte
+		[]byte("12345"), // uint64 列返回 []byte
+	))
+
+	rows, err := db.Query("SELECT")
+	if err != nil {
+		t.Fatalf("db.Query: %v", err)
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		t.Fatal("expected one row")
+	}
+
+	msgDesc := buildPhase1ScanMsgDesc(t)
+	msg := dynamicpb.NewMessage(msgDesc)
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(columns, msgDesc.Fields(), true)
+	if err := DbScan2ProtoMsg(rows, msg, columns, msgFieldsMap); err != nil {
+		t.Fatalf("DbScan2ProtoMsg: %v", err)
+	}
+
+	pm := msg.ProtoReflect()
+	if got := pm.Get(msgDesc.Fields().ByName("id")).Int(); got != 42 {
+		t.Fatalf("id = %d", got)
+	}
+	if got := pm.Get(msgDesc.Fields().ByName("name")).String(); got != "alice" {
+		t.Fatalf("name = %q", got)
+	}
+	if got := pm.Get(msgDesc.Fields().ByName("active")).Bool(); !got {
+		t.Fatalf("active = %v", got)
+	}
+	if got := pm.Get(msgDesc.Fields().ByName("score")).Float(); got != 3.14 {
+		t.Fatalf("score = %v", got)
+	}
+	if got := string(pm.Get(msgDesc.Fields().ByName("data")).Bytes()); got != "raw" {
+		t.Fatalf("data = %q", got)
+	}
+	if got := pm.Get(msgDesc.Fields().ByName("hash")).Uint(); got != 12345 {
+		t.Fatalf("hash = %d", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
+}
+
+// TestDbRowScanner_DifferentMsgInstance 验证 scanner 可在多行时复用不同 msg 实例
+func TestDbRowScanner_DifferentMsgInstance(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	if err != nil {
+		t.Fatalf("sqlmock.New: %v", err)
+	}
+	defer db.Close()
+
+	columns := []string{"id", "name"}
+	mock.ExpectQuery("SELECT").WillReturnRows(sqlmock.NewRows(columns).
+		AddRow(int64(1), "first").
+		AddRow(int64(2), "second"))
+
+	rows, err := db.Query("SELECT")
+	if err != nil {
+		t.Fatalf("db.Query: %v", err)
+	}
+	defer rows.Close()
+
+	msgDesc := buildPhase1ScanMsgDesc(t)
+	msg1 := dynamicpb.NewMessage(msgDesc)
+	msg2 := dynamicpb.NewMessage(msgDesc)
+	msgFieldsMap := pdbutil.BuildMsgFieldsMap(columns, msgDesc.Fields(), true)
+	scanner, err := NewDbRowScanner(rows, msg1, columns, msgFieldsMap)
+	if err != nil {
+		t.Fatalf("NewDbRowScanner: %v", err)
+	}
+
+	if !rows.Next() {
+		t.Fatal("expected first row")
+	}
+	if err := scanner.Scan(rows, msg1); err != nil {
+		t.Fatalf("Scan msg1: %v", err)
+	}
+	if got := msg1.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "first" {
+		t.Fatalf("msg1 name = %q", got)
+	}
+
+	if !rows.Next() {
+		t.Fatal("expected second row")
+	}
+	if err := scanner.Scan(rows, msg2); err != nil {
+		t.Fatalf("Scan msg2: %v", err)
+	}
+	if got := msg2.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "second" {
+		t.Fatalf("msg2 name = %q", got)
+	}
+	// 验证 msg1 未被第二行覆盖
+	if got := msg1.ProtoReflect().Get(msgDesc.Fields().ByName("name")).String(); got != "first" {
+		t.Fatalf("msg1 name after msg2 scan = %q", got)
+	}
+	if err := mock.ExpectationsWereMet(); err != nil {
+		t.Fatalf("ExpectationsWereMet: %v", err)
+	}
 }

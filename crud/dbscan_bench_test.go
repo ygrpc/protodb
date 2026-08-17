@@ -1,9 +1,13 @@
 package crud
 
 import (
+	"database/sql"
 	"strings"
 	"testing"
 
+	"github.com/DATA-DOG/go-sqlmock"
+	"github.com/ygrpc/protodb/pdbutil"
+	"google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protodesc"
 	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/types/descriptorpb"
@@ -92,6 +96,50 @@ var benchScanRowVals = []any{
 	int64(1),
 }
 
+type benchmarkRowScanner interface {
+	Scan(rows *sql.Rows, msg proto.Message) error
+}
+
+type benchmarkPreallocatedScanner struct {
+	fieldDescs []protoreflect.FieldDescriptor
+	rowVals    []any
+}
+
+func newBenchmarkPreallocatedScanner(columnNames []string, msgFieldsMap map[string]protoreflect.FieldDescriptor) *benchmarkPreallocatedScanner {
+	fieldDescs := make([]protoreflect.FieldDescriptor, len(columnNames))
+	rowVals := make([]any, len(columnNames))
+	for i, columnName := range columnNames {
+		fieldDesc := msgFieldsMap[strings.ToLower(columnName)]
+		fieldDescs[i] = fieldDesc
+		if fieldDesc == nil {
+			rowVals[i] = new(any)
+			continue
+		}
+		rowVals[i] = allocScanDest(fieldDesc)
+	}
+	return &benchmarkPreallocatedScanner{fieldDescs: fieldDescs, rowVals: rowVals}
+}
+
+func (s *benchmarkPreallocatedScanner) Scan(rows *sql.Rows, msg proto.Message) error {
+	if err := rows.Scan(s.rowVals...); err != nil {
+		return err
+	}
+	for i, fieldDesc := range s.fieldDescs {
+		if fieldDesc == nil {
+			continue
+		}
+		if err := setProtoMsgFieldDirect(msg, fieldDesc, s.rowVals[i]); err != nil {
+			if !canFallbackDirectError(err) {
+				return err
+			}
+			if err := SetProtoMsgField(msg, fieldDesc, unwrapScanVal(s.rowVals[i])); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func BenchmarkDbRowScannerAssign_MapLookup(b *testing.B) {
 	fields := benchMsgDesc.Fields()
 	msgFieldsMap := map[string]protoreflect.FieldDescriptor{
@@ -139,6 +187,73 @@ func BenchmarkDbRowScannerAssign_PrecomputedDescriptors(b *testing.B) {
 			if err := setProtoMsgFieldDirect(msg, fieldDesc, benchScanRowVals[j]); err != nil {
 				b.Fatal(err)
 			}
+		}
+	}
+}
+
+func BenchmarkDbRowScannerScan(b *testing.B) {
+	b.Run("PreallocatedDest", func(b *testing.B) {
+		benchmarkDbRowScannerScan(b, func(_ *sql.Rows, _ proto.Message, columns []string, fields map[string]protoreflect.FieldDescriptor) (benchmarkRowScanner, error) {
+			return newBenchmarkPreallocatedScanner(columns, fields), nil
+		})
+	})
+	b.Run("ProtoFieldReceiver", func(b *testing.B) {
+		benchmarkDbRowScannerScan(b, func(rows *sql.Rows, msg proto.Message, columns []string, fields map[string]protoreflect.FieldDescriptor) (benchmarkRowScanner, error) {
+			return NewDbRowScanner(rows, msg, columns, fields)
+		})
+	})
+}
+
+func benchmarkDbRowScannerScan(b *testing.B, newScanner func(*sql.Rows, proto.Message, []string, map[string]protoreflect.FieldDescriptor) (benchmarkRowScanner, error)) {
+	columns := []string{"id", "name", "active", "score", "amount", "count", "flags", "hash", "data"}
+	b.ReportAllocs()
+	for i := 0; i < b.N; i++ {
+		b.StopTimer()
+		db, mock, err := sqlmock.New()
+		if err != nil {
+			b.Fatal(err)
+		}
+		mock.ExpectQuery("SELECT").WillReturnRows(
+			sqlmock.NewRows(columns).
+				AddRow(int64(42), "hello", true, float64(3.14), float64(2.718), int64(100), int64(7), int64(12345), []byte("raw")).
+				AddRow(int64(43), "world", false, float64(6.28), float64(1.618), int64(200), int64(8), int64(99999), []byte("data")),
+		)
+		mock.ExpectClose()
+		rows, err := db.Query("SELECT")
+		if err != nil {
+			b.Fatal(err)
+		}
+		if !rows.Next() {
+			b.Fatal("expected row")
+		}
+		msg := dynamicpb.NewMessage(benchMsgDesc)
+		msgFieldsMap := pdbutil.BuildMsgFieldsMap(columns, benchMsgDesc.Fields(), true)
+		scanner, err := newScanner(rows, msg, columns, msgFieldsMap)
+		if err != nil {
+			b.Fatal(err)
+		}
+		b.StartTimer()
+
+		if err := scanner.Scan(rows, msg); err != nil {
+			b.Fatal(err)
+		}
+		proto.Reset(msg)
+		if !rows.Next() {
+			b.Fatal("expected second row")
+		}
+		if err := scanner.Scan(rows, msg); err != nil {
+			b.Fatal(err)
+		}
+
+		b.StopTimer()
+		if err := rows.Close(); err != nil {
+			b.Fatal(err)
+		}
+		if err := db.Close(); err != nil {
+			b.Fatal(err)
+		}
+		if err := mock.ExpectationsWereMet(); err != nil {
+			b.Fatal(err)
 		}
 	}
 }

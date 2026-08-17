@@ -1,14 +1,14 @@
 # protodb Rows Scan 性能优化方案
 
-利用 Go 1.27 的 `driver.RowsColumnScanner` 与 `sql.ConvertAssign`，重构数据库扫描层，消除 `[]*interface{}` 中间层带来的 N 次堆分配、双重类型转换与反射开销，实现驱动层到 protobuf 字段的直接类型感知赋值。
+重构数据库扫描层，减少中间 scan dest 带来的类型转换、解包与反射开销，实现数据库值到 protobuf 字段的类型感知赋值。Phase 1 基于标准 `database/sql.Scanner`，Phase 2 记录进一步下沉到驱动层的设计草案。
 
 ## 问题分析
 
 当前 `crud.DbScan2ProtoMsg` 的扫描流程存在以下浪费：
 
-1. **N 次 `interface{}` 堆分配**：每列 `new(interface{})`，每行重复。
+1. **中间 scan dest 转换**：每列预分配 `sql.Null*` 等接收器，扫描后还需要逐列解包并写入 protobuf。
 2. **双重装箱**：`rows.Scan` 先把驱动原生值转成 `driver.Value` 再装箱进 `interface{}`。
-3. **解箱 + 反射链**：`SetProtoMsgField` → `unwrapScanVal` → `pdbutil.SetField`（大量 `reflect` 操作）。
+3. **解箱 + 反射链**：兼容路径需要经过 `SetProtoMsgField` → `unwrapScanVal` → `pdbutil.SetField`。
 4. **复杂字段二次解析**：`List/Map/Message` 字段先以 JSON/数组文本取出，再做 `json.Unmarshal` 或 `parsePGArrayLiteral`。
 
 ## 方案概述
@@ -17,18 +17,14 @@
 
 #### 1.1 重构 `DbScan2ProtoMsg` 的 dest 分配
 
-不再使用统一的 `[]*interface{}`，改为根据 `protoreflect.FieldDescriptor.Kind()` 为每列选择最优的原生 dest 类型：
+不再使用统一的 `[]*interface{}`，改为为每列分配 `*protoFieldReceiver`（实现 `sql.Scanner` 接口）：
 
 | Proto Kind | Dest 类型 | 说明 |
 |---|---|---|
-| `StringKind` | `*string` | 直接接收文本 |
-| `Int32/64/Sint/Sfixed/Enum` | `*int64` | 数据库存 bigint/integer |
-| `Uint32/64/Fixed` | `*int64` | 数据库通常存为有符号，后续转换 |
-| `BoolKind` | `*bool` | 直接接收 boolean |
-| `FloatKind`/`DoubleKind` | `*float64` | 直接接收 real/double |
-| `BytesKind` | `*[]byte` | 直接接收 bytea/blob |
-| `MessageKind` / `List` / `Map` | `*string` 或 `*[]byte` | JSON/数组文本，后续解析 |
+| 所有已知列 | `*protoFieldReceiver` | 实现 `sql.Scanner`，`Scan(src)` 内直接调用 `setProtoMsgFieldDirect` |
 | 未知列 | `*any` | 回退兼容 |
+
+`protoFieldReceiver` 在 `Scan(src)` 中根据 `FieldDescriptor.Kind()` 对 `src` 做类型感知转换（支持 `[]byte` → `string/int/float/bool` 等），然后直接写入 proto 字段。
 
 #### 1.2 新增 `SetProtoMsgFieldDirect` 函数族
 
@@ -48,11 +44,19 @@ func setProtoMsgFieldBytes(msg proto.Message, fd protoreflect.FieldDescriptor, v
 
 `DbScan2ProtoMsg` 在循环扫描多行时，dest 数组对象本身可以复用，仅更新值，避免每行重复分配 dest 对象。
 
-**Phase 1 收益**：
-- 消除每行每列的 `interface{}` 堆分配。
-- 消除 `unwrapScanVal` 的间接层。
-- 消除标量字段的 `pdbutil.SetField` 反射开销。
-- 完全兼容现有驱动，无外部依赖变化。
+#### 1.4 收益与局限
+
+**工作原理**：
+- `rows.Scan` 在发现 dest 实现了 `sql.Scanner` 接口时，会调用其 `Scan(src)` 方法，把驱动解析后的值直接传入。
+- `protoFieldReceiver.Scan` 内部直接调用 `setProtoMsgFieldDirect`，省去 `sql.NullString`/`sql.NullInt64` 等中间结构的转换和解包步骤。
+- 每列的 dest 不再是 `*sql.NullString`，而是 `*protoFieldReceiver`。
+
+- scan dest 与旧实现一样按列创建并跨行复用，但直接接收器减少了每行的转换和解包分配。
+- 标量字段通常可直接写入 `protoreflect`，省去 `unwrapScanVal` 和 `pdbutil.SetField`；不支持的类型仍保留兼容回退。
+- 继续使用标准 `database/sql` 接口，不要求底层驱动改造。
+- `Scan(src any)` 仍接收装箱后的 `driver.Value`，Phase 1 不会实现零分配。
+
+> **注意**：`database/sql` 的 `rows.Scan` 仍然会把驱动返回的 `driver.Value` 装箱进 `interface{}` 后再传给 `sql.Scanner.Scan(src any)`，因此 `driver.Value` → `interface{}` 的分配仍然存在。要彻底消除这一步，必须等 Go 1.27 的 `RowsColumnScanner.ScanColumn`（Phase 2）。
 
 ---
 
@@ -202,7 +206,7 @@ db, err := sql.Open("protodb-pgx", dsn)
 - **Phase 2 可选**：用户可选择使用 `protodbdriver` 包装驱动获得最大性能，也可继续使用标准驱动走 Phase 1 优化路径。
 - **驱动回退**：`ScanColumn` 对不认识的 `dest` 类型返回 `driver.ErrSkip`，标准库自动回退到传统 `rows.Scan`。
 
-#### 3.2 测试策略
+#### 3.4 测试策略
 
 1. 为 `setProtoMsgFieldDirect` 函数族编写单元测试，覆盖所有标量类型（bool/int32/int64/uint32/uint64/float32/float64/string/bytes/enum）。
 2. 为重构后的 `DbScan2ProtoMsg` 编写 mock `sql.Rows` 测试，验证 dest 类型分配正确。
@@ -227,14 +231,21 @@ db, err := sql.Open("protodb-pgx", dsn)
 
 ---
 
-## 预期效果
+## 实测效果
 
-| 优化项 | 当前开销 | Phase 1 后 | Phase 2 后 |
-|---|---|---|---|
-| 标量字段堆分配 | N `interface{}` / row | ≈ 0（复用栈/堆 string/int64 等） | ≈ 0 |
-| 标量字段类型转换 | `driver.Value` → `interface{}` → 反射 | `driver.Value` → 直接 `protoreflect.Set` | 驱动原生 → 直接 `protoreflect.Set` |
-| 数组字段解析 | JSON/文本序列化 + 反序列化 | 同上（仍走文本） | 驱动层直接解析为 `protoreflect.List` |
-| JSON 字段解析 | `protojson.Unmarshal` | 同上 | 驱动层直接解析为 `proto.Message` |
-| 整体拷贝次数 | 2-3 次 | 2 次 | 1 次 |
+`BenchmarkDbRowScannerScan` 使用相同的 `sqlmock` 数据对比预分配 scan dest 与 `protoFieldReceiver`，每次操作扫描 9 列、2 行。一次参考运行结果如下：
+
+| 路径 | ns/op | B/op | allocs/op |
+|---|---:|---:|---:|
+| `PreallocatedDest` | 18,315 | 2,358 | 37 |
+| `ProtoFieldReceiver` | 15,234 | 2,217 | 26 |
+
+运行命令：
+
+```bash
+go test ./crud -run '^$' -bench '^BenchmarkDbRowScannerScan$' -benchmem
+```
+
+具体耗时受机器和运行环境影响；这组 benchmark 主要用于持续比较两条相同扫描路径的分配数和相对性能。Phase 1 不承诺零分配，复杂数组和消息字段仍需文本或 JSON 解析。
 
 > **注**：Phase 2 依赖于 Go 1.27 的发布以及底层驱动（pgx/mysql/sqlite）对 `RowsColumnScanner` 的实现跟进。在驱动未完全支持前，Phase 1 已经能带来显著的标量字段性能提升。
