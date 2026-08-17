@@ -60,7 +60,9 @@ func setProtoMsgFieldBytes(msg proto.Message, fd protoreflect.FieldDescriptor, v
 
 ---
 
-### Phase 2：Go 1.27 驱动层优化（`RowsColumnScanner`）
+### Phase 2（TODO）：Go 1.27 驱动层优化（`RowsColumnScanner`）
+
+> **TODO 状态**：本阶段尚未实现。下述 API、驱动能力和回退行为均为设计草案；实施前必须基于项目采用的 Go 1.27 工具链及各数据库驱动的实际接口重新验证，并通过独立 benchmark 证明收益。
 
 当 Go 1.27 发布且底层驱动（如 pgx）升级支持 `RowsColumnScanner` 后，进一步在驱动层实现零拷贝扫描。
 
@@ -153,15 +155,15 @@ db, err := sql.Open("protodb-pgx", dsn)
 
 ---
 
-### 关于底层驱动是否实现 RowsColumnScanner 的澄清
+### TODO：验证底层驱动的 `RowsColumnScanner` 支持
 
-**Go 1.27 发布后，底层驱动（pgx、go-sql-driver/mysql、modernc.org/sqlite 等）不一定立即实现 `RowsColumnScanner`**，这取决于各驱动维护者的跟进节奏。
+Phase 2 实施前，需要逐一确认 pgx、go-sql-driver/mysql、modernc.org/sqlite 等驱动是否提供等价能力，以及标准库最终采用的接口和回退语义。
 
-但 Go 1.27 的设计是**渐进式**的：
+当前设计草案假设迁移机制是**渐进式**的：
 1. 如果底层驱动的 `Rows` 实现了 `RowsColumnScanner`，`database/sql` 自动调用 `ScanColumn`
 2. 如果没有实现，回退到传统 `rows.Scan` 路径，行为与现在完全一致
 
-在我们的架构中，**无论底层驱动是否跟进**，都能获得性能提升：
+以下路径和效果均为待验证目标，不代表当前实现：
 
 | 场景 | 路径 | 效果 |
 |---|---|---|
@@ -178,7 +180,9 @@ db, err := sql.Open("protodb-pgx", dsn)
 
 ---
 
-### Phase 3：Build Tag 区分与渐进式迁移
+### Phase 3（TODO）：Build Tag 区分与渐进式迁移
+
+> **TODO 状态**：仅在 Phase 2 的接口验证和原型 benchmark 完成后实施；当前仓库没有这些 build-tag 文件或 `protodbdriver` 包。
 
 #### 3.1 Build Tag 隔离机制
 
@@ -194,7 +198,7 @@ db, err := sql.Open("protodb-pgx", dsn)
 #### 3.2 Go < 1.27 的折中路径
 
 在 Go 1.23–1.26 上，Phase 1 的优化仍然有效：
-- `DbScan2ProtoMsg` 仍然使用**类型感知的原生 dest 分配**（`*string`、`*int64` 等），消除 `interface{}` 开销。
+- `DbScan2ProtoMsg` 使用实现 `sql.Scanner` 的 `protoFieldReceiver`，减少中间转换和解包分配。
 - `setProtoMsgFieldDirect` 仍然通过 `protoreflect` API 直接写入字段，消除 `pdbutil.SetField` 反射。
 - 但**无法绕过 `driver.Value` 中间层**，因为 `database/sql` 标准库仍然只能走 `rows.Scan(dest...)` → `driver.Value` → 转换的老路。
 
@@ -217,17 +221,18 @@ db, err := sql.Open("protodb-pgx", dsn)
 
 ## 实施步骤
 
-| Step | 任务 | 文件 | 说明 |
-|---|---|---|---|
-| 1 | 新增 `setProtoMsgFieldDirect` 函数族 | `crud/dbscan.go` | 覆盖所有标量类型的直接设置 |
-| 2 | 重构 `DbScan2ProtoMsg` | `crud/dbscan.go` | 类型感知 dest 分配 + 直接字段设置 |
-| 3 | 重构 `DbScan2ProtoMsgx2` | `crud/dbscan.go` | 同样消除 `[]*interface{}` |
-| 4 | Benchmark 验证 | `crud/dbscan_bench_test.go` | 对比标量字段扫描性能 |
-| 5 | 创建 `sqldb/protodbdriver` 包 | `sqldb/protodbdriver/driver.go` | 实现 `Driver` + `Conn` + `Rows` |
-| 6 | 实现 `RowsColumnScanner.ScanColumn` | `sqldb/protodbdriver/rows.go` | 对 `protoFieldReceiver` 做类型感知写入 |
-| 7 | 注册辅助函数 | `sqldb/protodbdriver/register.go` | `RegisterProtodbDriver` |
-| 8 | 编写测试 | `sqldb/protodbdriver/*_test.go` | mock driver + 路径覆盖 |
-| 9 | 文档更新 | `README.md` / `doc/` | 说明如何接入包装驱动 |
+| Step | 状态 | 任务 | 文件 | 说明 |
+|---|---|---|---|---|
+| 1 | 已完成 | 新增 `setProtoMsgFieldDirect` 函数族 | `crud/dbscan.go` | 覆盖所有标量类型的直接设置 |
+| 2 | 已完成 | 重构 `DbScan2ProtoMsg` | `crud/dbscan.go` | `protoFieldReceiver` + 直接字段设置 |
+| 3 | 已完成 | 优化 `DbScan2ProtoMsgx2` | `crud/dbscan.go` | 复用类型感知 scan dest |
+| 4 | 已完成 | Benchmark 验证 | `crud/dbscan_bench_test.go` | 对比预分配 dest 与直接接收器 |
+| 5 | TODO | 验证 Go 1.27 API 与驱动能力 | 调研/原型 | 确认接口、回退语义和可测收益 |
+| 6 | TODO | 创建 `sqldb/protodbdriver` 包 | `sqldb/protodbdriver/driver.go` | 实现 `Driver` + `Conn` + `Rows` |
+| 7 | TODO | 实现驱动层列扫描 | `sqldb/protodbdriver/rows.go` | 对 `protoFieldReceiver` 做类型感知写入 |
+| 8 | TODO | 注册辅助函数 | `sqldb/protodbdriver/register.go` | `RegisterProtodbDriver` |
+| 9 | TODO | 编写测试和 benchmark | `sqldb/protodbdriver/*_test.go` | mock driver、兼容回退和性能对照 |
+| 10 | TODO | 接入文档 | `README.md` / `doc/` | 仅在实现稳定后说明接入方式 |
 
 ---
 
@@ -248,4 +253,4 @@ go test ./crud -run '^$' -bench '^BenchmarkDbRowScannerScan$' -benchmem
 
 具体耗时受机器和运行环境影响；这组 benchmark 主要用于持续比较两条相同扫描路径的分配数和相对性能。Phase 1 不承诺零分配，复杂数组和消息字段仍需文本或 JSON 解析。
 
-> **注**：Phase 2 依赖于 Go 1.27 的发布以及底层驱动（pgx/mysql/sqlite）对 `RowsColumnScanner` 的实现跟进。在驱动未完全支持前，Phase 1 已经能带来显著的标量字段性能提升。
+> **注**：Phase 2/3 保留为 TODO，不属于当前实现或性能承诺。现阶段仅 Phase 1 已落地并由测试和 benchmark 覆盖。
