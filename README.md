@@ -292,7 +292,13 @@ protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型�
 
 ### 4. 事务支持 (Transaction Support)
 
-`protodb` 支持在事务中执行多个原子性的数据库操作。这对于金融、订单等严肃的业务系统至关重要。
+`protodb` 支持在事务中执行多个原子性的数据库操作，也支持在事务成功提交后再广播显式执行的写入 CRUD。
+
+事务相关入口的职责不同：
+
+- `crud.DbInsert`、`crud.DbUpdate` 等只执行底层数据库操作，不管理广播。
+- `service.HandleCrud` 是兼容入口，单条写入 CRUD 成功后立即异步广播，即使调用方返回的是 `*sql.Tx`。
+- `service.BeginTransactionalCrud` 创建一次性事务执行器，只在其 `Commit()` 返回 `nil` 后异步广播。
 
 #### DB 接口
 
@@ -302,10 +308,13 @@ protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型�
 // DB 定义了 *sql.DB 和 *sql.Tx 的通用方法
 type DB interface {
     Exec(query string, args ...any) (sql.Result, error)
+    ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
     Query(query string, args ...any) (*sql.Rows, error)
+    QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
     QueryRow(query string, args ...any) *sql.Row
-}
-    // ... 以及 Context 版本的方法
+    QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+    Prepare(query string) (*sql.Stmt, error)
+    PrepareContext(ctx context.Context, query string) (*sql.Stmt, error)
 }
 ```
 
@@ -353,7 +362,7 @@ func CreateOrderWithItems(db *sql.DB, order *Order, items []*OrderItem) error {
 }
 ```
 
-#### 服务层事务封装示例
+#### 通用底层事务封装示例
 
 ```go
 // RunInTransaction 提供一个通用的事务封装
@@ -387,11 +396,65 @@ err := RunInTransaction(db, func(tx sqldb.DB) error {
 })
 ```
 
+#### 提交后广播的事务 CRUD
+
+需要同时使用 `service.HandleCrud` 的权限检查、响应格式和广播能力时，使用事务 CRUD 执行器：
+
+```go
+func RunCrudWithCommitBroadcast(
+    ctx context.Context,
+    db *sql.DB,
+    meta http.Header,
+    request *protodb.CrudReq,
+    permission service.TfnProtodbCrudPermission,
+    extraSQL string,
+) (*protodb.CrudResp, error) {
+    executor, err := service.BeginTransactionalCrud(
+        ctx,
+        db,
+        &sql.TxOptions{Isolation: sql.LevelSerializable},
+        permission,
+    )
+    if err != nil {
+        return nil, err
+    }
+    defer executor.Rollback()
+
+    response, err := executor.HandleCrud(ctx, meta, request)
+    if err != nil {
+        return nil, err
+    }
+
+    if _, err := executor.DB().ExecContext(ctx, extraSQL); err != nil {
+        return nil, err
+    }
+
+    if err := executor.Commit(); err != nil {
+        return nil, err
+    }
+    return response, nil
+}
+```
+
+`RunInTransaction` 与 `RunCrudWithCommitBroadcast` 面向不同层次：
+
+| 示例函数 | 执行入口 | 广播行为 | 适用场景 |
+| --- | --- | --- | --- |
+| `RunInTransaction` | 直接调用 `crud.DbInsert`、`crud.DbUpdate` 等底层函数 | 不产生 CRUD 广播 | 只需要原子执行数据库操作，或由业务自行处理事件 |
+| `RunCrudWithCommitBroadcast` | 通过 `TransactionalCrudExecutor.HandleCrud` 执行服务层 CRUD | 仅在底层 `Commit()` 返回 `nil` 后异步广播 | 需要复用 permission、`CrudResp` 构造和现有 broadcaster |
+
+这两个名字只是文档中的示例辅助函数，不是 `protodb` 新增的公开接口。真正新增的公开入口是 `service.BeginTransactionalCrud`。
+
+一个 `TransactionalCrudExecutor` 只对应一次事务，所有 CRUD 和 `DB()` 执行的额外 SQL 都使用传入的同一个 `*sql.DB`。它不支持多个 goroutine 并发调用，也不能在 commit 或 rollback 后复用。
+
+只有 `INSERT`、`UPDATE`、`PARTIALUPDATE` 和 `DELETE` 会形成广播事件。事件在每次 `HandleCrud` 成功时创建不可变快照，并在底层 `Commit()` 返回 `nil` 后按成功执行顺序异步广播。handler 收到的是根数据库 executor，不是已经结束的事务 executor。commit error 和 rollback 都不会广播；`DB()` 执行的额外 SQL、外键以及 trigger 产生的变化也不会自动广播。
+
 #### 兼容性说明
 
 * **向后兼容**: 现有使用 `*sql.DB` 的代码无需修改，可以直接继续工作
 * **新代码建议**: 使用 `sqldb.DB` 接口以获得事务支持
 * **注意事项**: 使用 `*sql.Tx` 时，需要用 `sqldb.DBWithDialect` 包装以保留数据库方言信息
+* **广播时机**: 旧 `service.HandleCrud` 保持即时异步广播；只有新事务执行器提供成功提交后广播
 
 ---
 

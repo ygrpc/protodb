@@ -128,6 +128,8 @@ tx.Commit() // or tx.Rollback() on error
 
 **Important:** When using `*sql.Tx`, you should wrap it with `sqldb.DBWithDialect` to preserve dialect information, since `*sql.Tx` doesn't expose the underlying driver type.
 
+For commit-aware service-layer broadcasting, use `service.BeginTransactionalCrud`. It owns one transaction, stores the permission callback once, accepts multiple `HandleCrud` calls, exposes the open transaction through `DB()`, and broadcasts successful explicit write CRUD operations only after `Commit()` returns `nil`. `DB()` returns nil after completion. A commit error or rollback discards all pending broadcasts, and handlers receive a root database executor rather than the completed transaction executor.
+
 #### Msg Registration (`msgstore`)
 
 CRUD/TableQuery need to resolve `TableName` to a concrete `proto.Message` via `msgstore`. Register messages at startup:
@@ -176,10 +178,19 @@ If the driver is unknown, the dialect falls back to `Unknown` and placeholders d
 ### RPC Orchestration (`service` package)
 
 - `HandleCrud()`: Entry point for `INSERT`, `UPDATE`, `PARTIALUPDATE`, `DELETE`, `SELECTONE`.
+- `BeginTransactionalCrud()`: Creates a single-use transaction executor that delays write CRUD broadcasts until a successful commit.
 - `HandleTableQuery()`: Entry point for list/search queries.
 - `HandleQuery()`: Entry point for custom SQL queries defined in `querystore`.
 
 All CRUD functions (`DbInsert`, `DbUpdate`, `DbDelete`, `DbSelectOne`, etc.) now accept `sqldb.DB` instead of `*sql.DB`, enabling transaction support.
+
+Broadcast semantics:
+
+- Direct `crud.Db*` calls never manage broadcasts.
+- `service.HandleCrud` retains immediate asynchronous broadcasts after each successful write CRUD, including when its database callback returns a transaction.
+- `TransactionalCrudExecutor.HandleCrud` snapshots successful write CRUD events and broadcasts them asynchronously, in order, only after its `Commit()` returns `nil`.
+- `SELECTONE`, additional SQL executed through `DB()`, foreign-key cascades, and trigger effects do not produce transactional CRUD broadcasts.
+- One executor is tied to one `*sql.DB` transaction, is not safe for concurrent use, and cannot be reused after commit or rollback.
 
 ### Type Mapping (Postgres Example)
 

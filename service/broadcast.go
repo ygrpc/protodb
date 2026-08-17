@@ -25,11 +25,13 @@ type TcrudBroadcaster struct {
 }
 
 type crudBroadcastEvent struct {
-	meta    http.Header
-	db      sqldb.DB
-	req     *protodb.CrudReq
-	reqMsg  proto.Message
-	respMsg proto.Message
+	meta     http.Header
+	db       sqldb.DB
+	req      *protodb.CrudReq
+	reqMsg   proto.Message
+	respMsg  proto.Message
+	// handlers is captured when the CRUD succeeds, before Commit can delay delivery.
+	handlers []TfnCrudBroadcastHandler
 }
 
 var GlobalCrudBroadcaster *TcrudBroadcaster = &TcrudBroadcaster{
@@ -112,7 +114,21 @@ func (this *TcrudBroadcaster) BroadcastAsync(meta http.Header, db sqldb.DB, req 
 		return
 	}
 	event := snapshotCrudBroadcastEvent(meta, db, req, reqMsg, respMsg)
-	go broadcastCrudReq(fns, event.meta, event.db, event.req, event.reqMsg, event.respMsg)
+	event.handlers = fns
+	this.broadcastEventsAsync([]crudBroadcastEvent{event})
+}
+
+// broadcastEventsAsync invokes snapshotted events in order in one goroutine.
+func (this *TcrudBroadcaster) broadcastEventsAsync(events []crudBroadcastEvent) {
+	if len(events) == 0 {
+		return
+	}
+
+	go func() {
+		for _, event := range events {
+			broadcastCrudReq(event.handlers, event.meta, event.db, event.req, event.reqMsg, event.respMsg)
+		}
+	}()
 }
 
 // crudBroadcastHandlers returns a stable handler list for the request table and code.

@@ -11,6 +11,7 @@ import (
 	"github.com/ygrpc/protodb/msgstore"
 	"github.com/ygrpc/protodb/pdbutil"
 	"github.com/ygrpc/protodb/querystore"
+	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -39,162 +40,148 @@ func buildCrudResp(rowsAffected int64, oldMsg, newMsg proto.Message, msgFormat i
 	return resp, nil
 }
 
-func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnGetDb TfnProtodbGetDb, fnCrudPermission TfnProtodbCrudPermission) (resp *protodb.CrudResp, err error) {
+func executeCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, db sqldb.DB, permission TfnProtodbCrudPermission) (*protodb.CrudResp, proto.Message, error) {
+	_ = ctx
 
+	dbmsg, ok := msgstore.GetMsg(req.TableName, true)
+	if !ok {
+		return nil, nil, fmt.Errorf("can not get proto msg %s err", req.TableName)
+	}
+
+	err := crud.MsgUnmarshal(dbmsg, req.MsgBytes, req.MsgFormat)
+	if err != nil {
+		return nil, nil, fmt.Errorf("unmarshal msg %s err: %w", req.TableName, err)
+	}
+
+	if permission != nil {
+		err = permission(meta, req.SchemeName, req.Code, db, dbmsg)
+		if err != nil {
+			return nil, nil, connect.NewError(connect.CodePermissionDenied, err)
+		}
+	}
+
+	var resp *protodb.CrudResp
+	switch req.Code {
+	case protodb.CrudReqCode_INSERT:
+		switch req.ResultType {
+		case protodb.CrudResultType_DMLResult:
+			resp, err = crud.DbInsert(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_NewMsg:
+			newMsg, err := crud.DbInsertReturn(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
+			}
+		}
+	case protodb.CrudReqCode_UPDATE:
+		switch req.ResultType {
+		case protodb.CrudResultType_DMLResult:
+			resp, err = crud.DbUpdate(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_NewMsg:
+			newMsg, err := crud.DbUpdateReturnNew(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_OldMsgAndNewMsg:
+			oldMsg, newMsg, err := crud.DbUpdateReturnOldAndNew(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
+			}
+		}
+	case protodb.CrudReqCode_PARTIALUPDATE:
+		switch req.ResultType {
+		case protodb.CrudResultType_DMLResult:
+			resp, err = crud.DbUpdatePartial(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_NewMsg:
+			newMsg, err := crud.DbUpdatePartialReturnNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_OldMsgAndNewMsg:
+			oldMsg, newMsg, err := crud.DbUpdatePartialReturnOldAndNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
+			}
+		}
+	case protodb.CrudReqCode_DELETE:
+		switch req.ResultType {
+		case protodb.CrudResultType_DMLResult:
+			resp, err = crud.DbDelete(db, dbmsg, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("delete msg %s err: %w", req.TableName, err)
+			}
+		case protodb.CrudResultType_NewMsg:
+			newMsg, err := crud.DbDeleteReturn(db, dbmsg, req.SchemeName)
+			if err != nil {
+				return nil, nil, fmt.Errorf("delete msg %s err: %w", req.TableName, err)
+			}
+			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
+			if err != nil {
+				return nil, nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+			}
+		}
+	case protodb.CrudReqCode_SELECTONE:
+		newMsg, err := crud.DbSelectOne(db, dbmsg, req.SelectOneKeyFields, req.SelectResultFields, req.SchemeName, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("selectone msg %s err: %w", req.TableName, err)
+		}
+		resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
+		if err != nil {
+			return nil, nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
+		}
+	}
+
+	if resp == nil {
+		return nil, nil, fmt.Errorf("Unknown crud code: %s", req.Code.String())
+	}
+
+	return resp, dbmsg, nil
+}
+
+func HandleCrud(ctx context.Context, meta http.Header, req *protodb.CrudReq, fnGetDb TfnProtodbGetDb, fnCrudPermission TfnProtodbCrudPermission) (resp *protodb.CrudResp, err error) {
 	db, err := fnGetDb(meta, req.SchemeName, req.TableName, true)
 	if err != nil {
 		return nil, err
 	}
 
-	dbmsg, ok := msgstore.GetMsg(req.TableName, true)
-	if !ok {
-		return nil, fmt.Errorf("can not get proto msg %s err", req.TableName)
-	}
-
-	err = crud.MsgUnmarshal(dbmsg, req.MsgBytes, req.MsgFormat)
+	resp, requestMessage, err := executeCrud(ctx, meta, req, db, fnCrudPermission)
 	if err != nil {
-		return nil, fmt.Errorf("unmarshal msg %s err: %w", req.TableName, err)
+		return nil, err
 	}
 
-	if fnCrudPermission != nil {
-		err = fnCrudPermission(meta, req.SchemeName, req.Code, db, dbmsg)
-		if err != nil {
-			return nil, connect.NewError(connect.CodePermissionDenied, err)
-		}
+	if req.Code != protodb.CrudReqCode_SELECTONE {
+		GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, requestMessage, resp)
 	}
 
-	switch req.Code {
-	case protodb.CrudReqCode_INSERT:
-		switch req.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbInsert(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
-			}
-			resp = dmlResult
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbInsertReturn(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("insert msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
-			}
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		}
-	case protodb.CrudReqCode_UPDATE:
-		switch req.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbUpdate(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
-			}
-			resp = dmlResult
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbUpdateReturnNew(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		case protodb.CrudResultType_OldMsgAndNewMsg:
-			oldMsg, newMsg, err := crud.DbUpdateReturnOldAndNew(db, dbmsg, req.MsgLastFieldNo, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("update msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
-			}
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		}
-	case protodb.CrudReqCode_PARTIALUPDATE:
-		switch req.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbUpdatePartial(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
-			}
-			resp = dmlResult
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbUpdatePartialReturnNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		case protodb.CrudResultType_OldMsgAndNewMsg:
-			oldMsg, newMsg, err := crud.DbUpdatePartialReturnOldAndNew(db, dbmsg, req.PartialUpdateFields, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("partialupdate msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, oldMsg, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal msg %s err: %w", req.TableName, err)
-			}
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		}
-	case protodb.CrudReqCode_DELETE:
-		switch req.ResultType {
-		case protodb.CrudResultType_DMLResult:
-			dmlResult, err := crud.DbDelete(db, dbmsg, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("delete msg %s err: %w", req.TableName, err)
-			}
-			resp = dmlResult
-
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		case protodb.CrudResultType_NewMsg:
-			newMsg, err := crud.DbDeleteReturn(db, dbmsg, req.SchemeName)
-			if err != nil {
-				return nil, fmt.Errorf("delete msg %s err: %w", req.TableName, err)
-			}
-			resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
-			if err != nil {
-				return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-			}
-			GlobalCrudBroadcaster.BroadcastAsync(meta, db, req, dbmsg, resp)
-			return resp, nil
-		}
-	case protodb.CrudReqCode_SELECTONE:
-		newMsg, err := crud.DbSelectOne(db, dbmsg, req.SelectOneKeyFields, req.SelectResultFields, req.SchemeName, true)
-		if err != nil {
-			return nil, fmt.Errorf("selectone msg %s err: %w", req.TableName, err)
-		}
-		resp, err = buildCrudResp(1, nil, newMsg, req.MsgFormat)
-		if err != nil {
-			return nil, fmt.Errorf("marshal new msg %s err: %w", req.TableName, err)
-		}
-		return resp, nil
-	}
-
-	return nil, fmt.Errorf("Unknown crud code: %s", req.Code.String())
+	return resp, nil
 }
 
 func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQueryReq, fnGetDb TfnProtodbGetDb, fnTableQueryPermission TfnTableQueryPermission, fnSend TfnSendQueryResp) (err error) {
