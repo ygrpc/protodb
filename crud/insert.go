@@ -160,7 +160,7 @@ func dbBuildSqlInsert(msgobj proto.Message, msgLastFieldNo int32, dbschema strin
 			if int32(field.Number()) > msgLastFieldNo {
 				if fieldPdb.DefaultValue != "" {
 					continue
-				} else {
+				} else if fieldPdb.IsNotNull() || (!fieldPdb.IsReference() && !fieldPdb.IsZeroAsNull()) {
 					err = fmt.Errorf("field %s.%s is not set and has no default value", msgDesc.Name(), string(field.Name()))
 					return "", nil, err
 				}
