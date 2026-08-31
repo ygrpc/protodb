@@ -219,32 +219,6 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		}
 	}
 
-	msgDesc := dbmsg.ProtoReflect().Descriptor()
-	sqlStr, sqlVals, err := crud.TableQueryBuildSql(db, msgDesc, TableQueryReq, permissionSqlStr, permissionSqlVals)
-
-	if err != nil {
-		return sendErr(fmt.Errorf("build query sql for %s err: %w", TableQueryReq.TableName, err))
-	}
-
-	rows, err := db.Query(sqlStr, sqlVals...)
-	if err != nil {
-		return sendErr(fmt.Errorf("tablequery %s err: %w", TableQueryReq.TableName, err))
-	}
-	defer rows.Close()
-
-	// Determine which fields to scan
-	resultColumns := TableQueryReq.ResultColumnNames
-	useAllFields := len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*")
-	fieldNames := resultColumns
-	if useAllFields {
-		fieldNames = nil
-	}
-
-	resultMsg, _ := msgstore.GetMsg(TableQueryReq.TableName, true)
-
-	resultMsgDesc := resultMsg.ProtoReflect().Descriptor()
-	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, resultMsgDesc.Fields(), true)
-
 	var respNo int64 = 0
 	batchSize := TableQueryReq.PreferBatchSize
 	if batchSize <= 0 {
@@ -263,24 +237,10 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 		MsgBytes:    nil,
 		ResponseEnd: false,
 	}
-	rowScanner, err := crud.NewDbRowScanner(rows, resultMsg, fieldNames, msgFieldsMap)
-	if err != nil {
-		return sendErr(fmt.Errorf("tablequery %s create row scanner err: %w", TableQueryReq.TableName, err))
-	}
-
-	for rows.Next() {
-		// reuse resultMsg
-		proto.Reset(resultMsg)
-
-		// Scan row data
-		err = rowScanner.Scan(rows, resultMsg)
-		if err != nil {
-			return sendErr(fmt.Errorf("tablequery %s scan row data err: %w", TableQueryReq.TableName, err))
-		}
-
+	err = crud.DbTableQueryWithPermissionContext(ctx, db, dbmsg, TableQueryReq, permissionSqlStr, permissionSqlVals, func(resultMsg proto.Message) error {
 		resultMsgBytes, err := crud.MsgMarshal(resultMsg, TableQueryReq.MsgFormat)
 		if err != nil {
-			return sendErr(fmt.Errorf("tablequery %s marshal msg err: %w", TableQueryReq.TableName, err))
+			return fmt.Errorf("marshal msg err: %w", err)
 		}
 
 		resp.MsgBytes = append(resp.MsgBytes, resultMsgBytes)
@@ -292,7 +252,7 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 			resp.ResponseEnd = false
 			err = fnSend(resp)
 			if err != nil {
-				return sendErr(fmt.Errorf("send msg fail, %w", err))
+				return fmt.Errorf("send msg fail: %w", err)
 			}
 			respNo++
 			respBatchSize = 0
@@ -304,11 +264,10 @@ func HandleTableQuery(ctx context.Context, meta http.Header, req *protodb.TableQ
 				ResponseEnd: false,
 			}
 		}
-	}
-
-	err = rows.Err()
+		return nil
+	})
 	if err != nil {
-		return sendErr(fmt.Errorf("query %s err: %w", TableQueryReq.TableName, err))
+		return sendErr(fmt.Errorf("tablequery %s err: %w", TableQueryReq.TableName, err))
 	}
 
 	resp.ResponseEnd = true

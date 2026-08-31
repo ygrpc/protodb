@@ -282,6 +282,21 @@ protodb 原生支持 Protobuf 的 `repeated` (数组) 和 `map` (映射) 类型�
 
 注意：当使用 `Where2` 时，需要同时填充 `Where2Operator`，且两者长度必须一致。
 
+本地 Go 代码可以直接复用同一套 `TableQueryReq` 查询语义：
+
+```go
+err := crud.DbTableQuery(db, &pb.User{}, &protodb.TableQueryReq{
+    TableName: "User",
+    Where: map[string]string{"department_id": "12"},
+}, func(msg proto.Message) error {
+    user := msg.(*pb.User)
+    // process user
+    return nil
+})
+```
+
+`crud.DbTableQueryList` 提供收集为 `[]proto.Message` 的便利封装；大结果集建议使用回调式 `DbTableQuery`。两者与 RPC `TableQuery` 共用 SQL 构建、字段校验、分页和 `Where2` 操作符实现。
+
 ### 2. 自定义 SQL 查询 (Query)
 
 对于 `protodb` 自动生成的 CRUD 无法满足的复杂场景（如多表 Join），您可以在 `querystore` 中注册自定义 SQL，并通过 `Query` RPC 调用。客户端只需传递参数，依然保持类型安全。
