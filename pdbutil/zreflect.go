@@ -7,11 +7,36 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/google/uuid"
 )
+
+// fieldIndexCache avoids repeating reflect's name lookup for every row/field.
+// Struct types are immutable, so cached indexes remain valid for the process lifetime.
+var fieldIndexCache sync.Map // map[fieldLookupKey][]int
+
+type fieldLookupKey struct {
+	t    reflect.Type
+	name string
+}
+
+func cachedField(v reflect.Value, name string) reflect.Value {
+	t := v.Type()
+	key := fieldLookupKey{t: t, name: name}
+	if index, ok := fieldIndexCache.Load(key); ok {
+		return v.FieldByIndex(index.([]int))
+	}
+	field, ok := t.FieldByName(name)
+	if !ok {
+		return reflect.Value{}
+	}
+	index := append([]int(nil), field.Index...)
+	fieldIndexCache.Store(key, index)
+	return v.FieldByIndex(index)
+}
 
 const (
 	microsecondsPerSecond = 1000000
@@ -29,7 +54,7 @@ func GetField(obj interface{}, name string) (interface{}, error) {
 	}
 
 	objValue := ReflectValue(obj)
-	field := objValue.FieldByName(name)
+	field := cachedField(objValue, name)
 	if !field.IsValid() {
 		return nil, fmt.Errorf("no such field: %s in obj", name)
 	}
@@ -45,7 +70,7 @@ func GetFieldKind(obj interface{}, name string) (reflect.Kind, error) {
 	}
 
 	objValue := ReflectValue(obj)
-	field := objValue.FieldByName(name)
+	field := cachedField(objValue, name)
 
 	if !field.IsValid() {
 		return reflect.Invalid, fmt.Errorf("no such field: %s in obj", name)
@@ -62,7 +87,7 @@ func GetFieldType(obj interface{}, name string) (string, error) {
 	}
 
 	objValue := ReflectValue(obj)
-	field := objValue.FieldByName(name)
+	field := cachedField(objValue, name)
 
 	if !field.IsValid() {
 		return "", fmt.Errorf("no such field: %s in obj", name)
@@ -106,7 +131,7 @@ func SetField(obj interface{}, name string, value interface{}) error {
 
 	// Fetch the field reflect.Value
 	structValue := reflect.ValueOf(obj).Elem()
-	structFieldValue := structValue.FieldByName(name)
+	structFieldValue := cachedField(structValue, name)
 
 	if !structFieldValue.IsValid() {
 		return fmt.Errorf("no such field: %s in obj", name)
@@ -500,6 +525,10 @@ func HasField(obj interface{}, name string) (bool, error) {
 
 	objValue := ReflectValue(obj)
 	objType := objValue.Type()
+	fieldValue := cachedField(objValue, name)
+	if !fieldValue.IsValid() {
+		return false, nil
+	}
 	field, ok := objType.FieldByName(name)
 	if !ok || !IsExportableField(field) {
 		return false, nil
