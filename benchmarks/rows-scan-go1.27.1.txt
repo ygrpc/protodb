@@ -1,0 +1,24 @@
+Go: go1.27.1 linux/amd64
+Driver: github.com/jackc/pgx/v5 v5.11.0
+Database: PostgreSQL 17 (local Docker)
+Date: 2026-09-08
+Each operation: 1000 rows x 64 strings; fresh generated protobuf message per row.
+Command (PROTODB_SCAN_TEST_DSN configured):
+go test ./crud -run '^$' -bench '^BenchmarkPGXArrayRowsColumnScanner$' -benchmem -count=5 -benchtime=1s
+
+goos: linux
+goarch: amd64
+pkg: github.com/ygrpc/protodb/crud
+cpu: 13th Gen Intel(R) Core(TM) i7-1355U
+BenchmarkPGXArrayRowsColumnScanner/SQLScannerText-12         	      32	  44132129 ns/op	10313772 B/op	  339020 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/SQLScannerText-12         	      31	  41743064 ns/op	10313426 B/op	  339020 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/SQLScannerText-12         	      25	  53027995 ns/op	10313433 B/op	  339020 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/SQLScannerText-12         	      27	  43962054 ns/op	10313644 B/op	  339020 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/SQLScannerText-12         	      27	  45509378 ns/op	10313449 B/op	  339020 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/NativeBinary-12           	     100	  10422414 ns/op	 1953607 B/op	   69025 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/NativeBinary-12           	     100	  11070511 ns/op	 1953605 B/op	   69025 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/NativeBinary-12           	     100	  10383053 ns/op	 1953606 B/op	   69025 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/NativeBinary-12           	     115	  10657750 ns/op	 1953605 B/op	   69025 allocs/op
+BenchmarkPGXArrayRowsColumnScanner/NativeBinary-12           	     100	  10158263 ns/op	 1953606 B/op	   69025 allocs/op
+PASS
+ok  	github.com/ygrpc/protodb/crud	14.112s

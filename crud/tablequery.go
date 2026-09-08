@@ -60,7 +60,7 @@ func dbTableQueryContext(ctx context.Context, db sqldb.DB, msg proto.Message, re
 	if err != nil {
 		return err
 	}
-	rows, err := db.QueryContext(ctx, sqlStr, sqlVals...)
+	rows, err := QueryProtoRowsContext(ctx, db, sqlStr, sqlVals...)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func dbTableQueryContext(ctx context.Context, db sqldb.DB, msg proto.Message, re
 		fieldNames = nil
 	}
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
-	rowScanner, err := NewDbRowScanner(rows, msg, fieldNames, msgFieldsMap)
+	rowScanner, err := NewDbRowScannerForDB(db, rows, msg, fieldNames, msgFieldsMap)
 	if err != nil {
 		return err
 	}

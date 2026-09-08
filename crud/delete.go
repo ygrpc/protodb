@@ -46,7 +46,7 @@ func dbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string, tableName s
 		return nil, err
 	}
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := QueryProtoRows(db, sqlStr, sqlVals...)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +58,7 @@ func dbDeleteReturn(db sqldb.DB, msg proto.Message, dbschema string, tableName s
 
 	returnMsg = msg.ProtoReflect().New().Interface()
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, nil)
+	err = dbScan2ProtoMsgForDB(db, rows, returnMsg, nil, nil)
 
 	return returnMsg, err
 }

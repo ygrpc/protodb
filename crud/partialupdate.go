@@ -89,7 +89,7 @@ func dbUpdatePartialReturnNew(db sqldb.DB, msg proto.Message, updateFields []str
 		return nil, err
 	}
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := QueryProtoRows(db, sqlStr, sqlVals...)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +103,7 @@ func dbUpdatePartialReturnNew(db sqldb.DB, msg proto.Message, updateFields []str
 
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
+	err = dbScan2ProtoMsgForDB(db, rows, returnMsg, nil, msgFieldsMap)
 
 	return returnMsg, err
 }
@@ -153,7 +153,7 @@ func dbUpdatePartialReturnOldAndNew(db sqldb.DB, msg proto.Message, updateFields
 		return nil, nil, err
 	}
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := QueryProtoRows(db, sqlStr, sqlVals...)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -168,7 +168,7 @@ func dbUpdatePartialReturnOldAndNew(db sqldb.DB, msg proto.Message, updateFields
 
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
 
-	err = DbScan2ProtoMsgx2(rows, oldMsg, newMsg, nil, msgFieldsMap)
+	err = dbScan2ProtoMsgPairForDB(db, rows, oldMsg, newMsg, nil, msgFieldsMap)
 
 	return oldMsg, newMsg, err
 }

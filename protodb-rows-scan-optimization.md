@@ -1,256 +1,148 @@
-# protodb Rows Scan 性能优化方案
+# protodb Rows Scan 性能优化
 
-重构数据库扫描层，减少中间 scan dest 带来的类型转换、解包与反射开销，实现数据库值到 protobuf 字段的类型感知赋值。Phase 1 基于标准 `database/sql.Scanner`，Phase 2 记录进一步下沉到驱动层的设计草案。
+## 当前实现
 
-## 问题分析
+本实现基于 Go 1.27.1 和仓库使用的 pgx v5.11.0，保留 `go 1.25.0` 最低版本。
+Phase 1 的通用 `sql.Scanner` 路径继续存在；Go 1.27 的优化通过 pgx 已实现的
+`driver.RowsColumnScanner` 接入，不需要额外注册 `protodbdriver`。
 
-当前 `crud.DbScan2ProtoMsg` 的扫描流程存在以下浪费：
-
-1. **中间 scan dest 转换**：每列预分配 `sql.Null*` 等接收器，扫描后还需要逐列解包并写入 protobuf。
-2. **双重装箱**：`rows.Scan` 先把驱动原生值转成 `driver.Value` 再装箱进 `interface{}`。
-3. **解箱 + 反射链**：兼容路径需要经过 `SetProtoMsgField` → `unwrapScanVal` → `pdbutil.SetField`。
-4. **复杂字段二次解析**：`List/Map/Message` 字段先以 JSON/数组文本取出，再做 `json.Unmarshal` 或 `parsePGArrayLiteral`。
-
-## 方案概述
-
-### Phase 1：消除中间层，直接类型扫描（不依赖 Go 1.27，立即可做）
-
-#### 1.1 重构 `DbScan2ProtoMsg` 的 dest 分配
-
-不再使用统一的 `[]*interface{}`，改为为每列分配 `*protoFieldReceiver`（实现 `sql.Scanner` 接口）：
-
-| Proto Kind | Dest 类型 | 说明 |
-|---|---|---|
-| 所有已知列 | `*protoFieldReceiver` | 实现 `sql.Scanner`，`Scan(src)` 内直接调用 `setProtoMsgFieldDirect` |
-| 未知列 | `*any` | 回退兼容 |
-
-`protoFieldReceiver` 在 `Scan(src)` 中根据 `FieldDescriptor.Kind()` 对 `src` 做类型感知转换（支持 `[]byte` → `string/int/float/bool` 等），然后直接写入 proto 字段。
-
-#### 1.2 新增 `SetProtoMsgFieldDirect` 函数族
-
-绕过 `pdbutil.SetField` 的反射，直接使用 `protoreflect` API：
+本文件替代此前 Phase 2/3 的接口草案。标准库实际接口为：
 
 ```go
-func setProtoMsgFieldString(msg proto.Message, fd protoreflect.FieldDescriptor, v string) error
-func setProtoMsgFieldInt64(msg proto.Message, fd protoreflect.FieldDescriptor, v int64) error
-func setProtoMsgFieldBool(msg proto.Message, fd protoreflect.FieldDescriptor, v bool) error
-func setProtoMsgFieldFloat64(msg proto.Message, fd protoreflect.FieldDescriptor, v float64) error
-func setProtoMsgFieldBytes(msg proto.Message, fd protoreflect.FieldDescriptor, v []byte) error
+type RowsColumnScanner interface {
+    Rows
+    NextRow() error
+    ScanColumn(scanCtx ScanContext, index int, dest any) error
+}
 ```
 
-内部直接调用 `msg.ProtoReflect().Set(fd, protoreflect.ValueOfXxx(...))`，消除 `reflect` 开销。
+实现该接口后，`database/sql` 调用 `NextRow` 而不是 `Rows.Next`。
+`ScanColumn` 返回 `driver.ErrSkip` **不会自动回退**；驱动必须自行完成转换。
+`sql.ConvertAssign` 可以用于驱动的兼容转换，但不会天然消除装箱或分配。
 
-#### 1.3 复用 Scan 上下文（多行场景）
+## 优化路径
 
-`DbScan2ProtoMsg` 在循环扫描多行时，dest 数组对象本身可以复用，仅更新值，避免每行重复分配 dest 对象。
+| 场景 | 实际路径 |
+|---|---|
+| Go 1.25/1.26 或非 pgx 驱动 | 原有 Phase 1 扫描 |
+| Go 1.27 + pgx，标量列 | pgx 的 RowsColumnScanner → ConvertAssign → 原有 protoFieldReceiver |
+| Go 1.27 + pgx，匹配的内置数组列 | 请求二进制数组 → pgx ArraySetter → protobuf repeated 字段 |
+| 生成代码的公开 repeated string 字段 | 直接填充独立 []string，再一次性赋值，减少逐元素反射 |
+| 动态/opaque 消息及其他匹配的 repeated 标量 | pgx 元素接收器 → protoreflect.List |
+| JSON/JSONB、自定义数组类型 | 原有 JSON/文本转换路径 |
+| 内置数组与 protobuf 类型不匹配 | pgx 原生接收数组后转回文本，复用原有赋值规则 |
+| 未知数组列 | 原生接收并忽略，避免 pgx 对二进制数组转普通字符串的限制 |
 
-#### 1.4 收益与局限
+支持的内置数组为 bool、bytea、int2/int4/int8、float4/float8、text/varchar/bpchar。
+只有 PostgreSQL 元素类型与 protobuf kind 匹配时才直接赋值；例如 int4[] → repeated int32。
+numeric[]、枚举数组、自定义类型和 JSON 消息没有在本次增加专用解码器。
 
-**工作原理**：
-- `rows.Scan` 在发现 dest 实现了 `sql.Scanner` 接口时，会调用其 `Scan(src)` 方法，把驱动解析后的值直接传入。
-- `protoFieldReceiver.Scan` 内部直接调用 `setProtoMsgFieldDirect`，省去 `sql.NullString`/`sql.NullInt64` 等中间结构的转换和解包步骤。
-- 每列的 dest 不再是 `*sql.NullString`，而是 `*protoFieldReceiver`。
+标量原生接收器的原型虽然减少分配，但 pgx v5.11.0 的目标类型反射判断增加了 CPU 开销，
+所以没有默认启用该原型。数组必须配合二进制结果格式才能避免文本解析；
+仅把 sql.Scanner 改成原生接收器并不保证更快。
 
-- scan dest 与旧实现一样按列创建并跨行复用，但直接接收器减少了每行的转换和解包分配。
-- 标量字段通常可直接写入 `protoreflect`，省去 `unwrapScanVal` 和 `pdbutil.SetField`；不支持的类型仍保留兼容回退。
-- 继续使用标准 `database/sql` 接口，不要求底层驱动改造。
-- `Scan(src any)` 仍接收装箱后的 `driver.Value`，Phase 1 不会实现零分配。
+生成的公开 string 列表以 protobuf 字段编号查找对应 Go 字段，而不是依赖列名大小写。
+类型、字段索引、接收器和临时列表都属于当前扫描器，没有新增跨消息的全局字段缓存。
+每次结果采用独立切片，字符串和字节数据不会保留数据库行缓冲区。
+同一个扫描器应顺序扫描同一消息类型，不应并发使用。
 
-> **注意**：`database/sql` 的 `rows.Scan` 仍然会把驱动返回的 `driver.Value` 装箱进 `interface{}` 后再传给 `sql.Scanner.Scan(src any)`，因此 `driver.Value` → `interface{}` 的分配仍然存在。要彻底消除这一步，必须等 Go 1.27 的 `RowsColumnScanner.ScanColumn`（Phase 2）。
+## 接入
 
----
+以下高层入口在能确认底层是 pgx 的情况下自动使用优化：
 
-### Phase 2（TODO）：Go 1.27 驱动层优化（`RowsColumnScanner`）
+- 表查询和 service 自定义查询；
+- SelectOne、Insert/Delete/Update 的返回行；
+- Update/PartialUpdate 的 old/new 成对返回行。
 
-> **TODO 状态**：本阶段尚未实现。下述 API、驱动能力和回退行为均为设计草案；实施前必须基于项目采用的 Go 1.27 工具链及各数据库驱动的实际接口重新验证，并通过独立 benchmark 证明收益。
+普通 `*sql.DB` 和包裹它的 `*sqldb.DBWithDialect` 可确认驱动类型。
+裸 `*sql.Tx` 以及仅包含事务与方言信息的包装器无法暴露实际驱动，继续使用通用路径；
+不能仅凭 PostgreSQL 方言假设底层驱动是 pgx。
 
-当 Go 1.27 发布且底层驱动（如 pgx）升级支持 `RowsColumnScanner` 后，进一步在驱动层实现零拷贝扫描。
-
-#### 2.1 创建驱动包装器 `sqldb/protodbdriver`
-
-实现 `driver.Driver` + `driver.Conn` + `driver.RowsColumnScanner`：
+手动查询时，配对使用查询辅助函数和扫描器：
 
 ```go
-package protodbdriver
-
-type Driver struct{ underlying driver.Driver }
-
-type rows struct {
-    underlying driver.Rows
-    colTypes   []driver.ColumnType // 缓存列类型元数据
+rows, err := crud.QueryProtoRowsContext(ctx, db, query, args...)
+if err != nil {
+    return err
 }
+defer rows.Close()
 
-func (r *rows) ScanColumn(scanCtx driver.ScanContext, index int, dest any) error {
-    switch d := dest.(type) {
-    case *protoFieldReceiver:
-        // 利用底层驱动的列类型信息（OID、格式等）直接写入 proto 字段
-        return d.receive(scanCtx, r.underlying, index)
-    default:
-        // 回退到标准类型转换
-        v, err := r.readValue(index)
-        if err != nil { return err }
-        return sql.ConvertAssign(scanCtx, dest, v)
+scanner, err := crud.NewDbRowScannerForDB(db, rows, prototype, nil, nil)
+if err != nil {
+    return err
+}
+for rows.Next() {
+    msg := prototype.ProtoReflect().New().Interface()
+    if err := scanner.Scan(rows, msg); err != nil {
+        return err
     }
+    // 消费 msg。
 }
+return rows.Err()
 ```
 
-#### 2.2 定义 `protoFieldReceiver` 接收器类型
+`QueryProtoRows[Context]` 会在 Go 1.27 的已知 pgx 连接上请求内置数组二进制格式，
+因此其结果须与 `NewDbRowScannerForDB` 或 `NewPGXDbRowScanner` 配对，
+不能假设普通 `sql.Scanner` 能接收这些二进制数组。
+用户显式传入的 pgx 查询格式选项优先于辅助函数的默认设置。
 
-在 `crud/dbscan.go` 中定义一组轻量接收器，封装 `proto.Message` + `protoreflect.FieldDescriptor`：
+对于已确认来自 pgx 的事务或预编译查询，可显式使用 `NewPGXDbRowScanner`。
+它兼容 pgx 的文本和二进制数组，但不会在查询完成后改变传输格式；
+事务查询要获得二进制数组收益，需要在查询时自行传入相应 pgx 结果格式选项。
+简单协议只能传输文本，不承诺与二进制路径相同的性能。
 
-```go
-type protoFieldReceiver struct {
-    msg proto.Message
-    fd  protoreflect.FieldDescriptor
-}
+原有 `NewDbRowScanner`、`DbScan2ProtoMsg`、`DbScan2ProtoMsgx2` 的签名和通用用途保留。
 
-// Go 1.27 之前：作为 sql.Scanner 使用，接收 driver.Value 后做标准转换
-func (r *protoFieldReceiver) Scan(src any) error {
-    return SetProtoMsgField(r.msg, r.fd, src)
-}
+## NULL、转换与兼容性
 
-// Go 1.27 + 驱动包装器：ScanColumn 直接调用，绕过 driver.Value 中间层
-func (r *protoFieldReceiver) receive(scanCtx driver.ScanContext, rows driver.Rows, index int) error {
-    // 根据 fd.Kind() 和数据库列的 OID/类型，直接读取并设置到 proto message
-}
-```
+- NULL 数组和空数组清空 repeated 字段；NULL 数组元素映射为 protobuf 标量默认值。
+- 字符串数组保留空白、引号、反斜杠以及字面量 `"NULL"`。这也修正了旧文本解析器把带引号
+  的 NULL 字符串当作空值、裁剪字符串空白的问题。
+- 匹配的整数数组在写入 int32/uint32/uint64/enum 前检查范围，不进行静默截断。
+- 直接接收器拒绝多维数组，因为 protobuf repeated 字段不能表达维度。
+- 不承诺数组、JSON 或消息字段零分配；驱动与 protobuf 仍有必要的解码和内存分配。
 
-#### 2.3 类型感知的直接赋值示例
+## Benchmark
 
-以 PostgreSQL `text[]` → `repeated string` 为例：
+环境：Go 1.27.1、pgx v5.11.0、PostgreSQL 17（本机临时 Docker 容器）、
+Linux amd64、Intel i7-1355U，2026-09-08。
 
-```go
-func (r *protoFieldReceiver) receiveListString(scanCtx driver.ScanContext, rows driver.Rows, index int) error {
-    // 传统路径：rows.Scan 返回 "{a,b,c}" 字符串，需 parsePGArrayLiteral
-    // 新路径：利用 pgx 对 text[] 的原生解析，直接拿到 []string
-    // 然后逐元素写入 protoreflect.List，跳过全部字符串序列化
-}
-```
+相同 SQL 和数据，每次操作扫描 1,000 行，每行一个含 64 个字符串的 text[] 列；
+每行生成独立的 PDBField 消息。包含查询、网络、扫描器初始化和结果检查，
+不包含建库和连接初始化。五次运行取中位数：
 
-同理，`jsonb` → `MessageKind` 可以直接利用底层驱动的 JSON 解析能力。
-
-#### 2.4 用户接入方式
-
-在 `sqldb` 包中提供辅助注册：
-
-```go
-func RegisterProtodbDriver(underlyingDriverName string) (protodbDriverName string, err error)
-```
-
-用户连接时：
-
-```go
-import "github.com/ygrpc/protodb/sqldb/protodbdriver"
-
-_ = protodbdriver.RegisterProtodbDriver("pgx") // 注册 protodb-pgx
-
-db, err := sql.Open("protodb-pgx", dsn)
-```
-
-**Phase 2 收益**：
-- 驱动层直接操作 `protoreflect` API，跳过 `driver.Value` → `interface{}` → 反射 的全部中间层。
-- PostgreSQL 数组可直接从二进制/文本格式解析为 `protoreflect.List`，跳过 `parsePGArrayLiteral` / `json.Unmarshal`。
-- JSON/JSONB 字段可直接从驱动层解析为 proto message，跳过 `protojson.Unmarshal`。
-- 对 MySQL/SQLite 同样适用：包装器可统一处理 JSON/数组类型的跨方言扫描。
-
----
-
-### TODO：验证底层驱动的 `RowsColumnScanner` 支持
-
-Phase 2 实施前，需要逐一确认 pgx、go-sql-driver/mysql、modernc.org/sqlite 等驱动是否提供等价能力，以及标准库最终采用的接口和回退语义。
-
-当前设计草案假设迁移机制是**渐进式**的：
-1. 如果底层驱动的 `Rows` 实现了 `RowsColumnScanner`，`database/sql` 自动调用 `ScanColumn`
-2. 如果没有实现，回退到传统 `rows.Scan` 路径，行为与现在完全一致
-
-以下路径和效果均为待验证目标，不代表当前实现：
-
-| 场景 | 路径 | 效果 |
-|---|---|---|
-| Go < 1.27 | `rows.Scan` → `*string`/`*int64` dest → `setProtoMsgFieldDirect` | 消除 `interface{}` 分配 + 反射 |
-| Go >= 1.27，驱动**未实现** `RowsColumnScanner` | 同 Go < 1.27 路径 | Phase 1 收益仍在 |
-| Go >= 1.27，驱动**已实现** `RowsColumnScanner` | `ScanColumn` → `ConvertAssign` → `protoFieldReceiver.Scan` | 标量字段跳过 `driver.Value` 装箱， Phase 1 收益 + 驱动层优化 |
-| Go >= 1.27，使用 `protodbdriver` 包装器 | `ScanColumn` → 直接写入 `protoreflect` | 最大优化（可选，不依赖底层驱动） |
-
-**`protodbdriver` 包装器的角色**：
-- 它是一个**可选的增强层**，由 protodb 自己实现
-- 即使底层驱动没有实现 `RowsColumnScanner`，我们的包装器也可以实现它
-- 包装器内部通过底层驱动的扩展 API（如 pgx 的 `pgx.Rows`、mysql driver 的 `mysqlRows`）获取类型元数据和原始数据，直接写入 `protoreflect`
-- 用户可自由选择：用标准驱动（Phase 1 优化）或用 `protodbdriver`（Phase 2 最大优化）
-
----
-
-### Phase 3（TODO）：Build Tag 区分与渐进式迁移
-
-> **TODO 状态**：仅在 Phase 2 的接口验证和原型 benchmark 完成后实施；当前仓库没有这些 build-tag 文件或 `protodbdriver` 包。
-
-#### 3.1 Build Tag 隔离机制
-
-使用 `//go:build` 标签将代码按 Go 版本隔离，确保同一套代码在旧版本上编译通过：
-
-| 文件 | Build Tag | 说明 |
-|---|---|---|
-| `sqldb/protodbdriver/driver_go126.go` | `//go:build !go1.27` | Go < 1.27：不暴露 `RowsColumnScanner`，仅做驱动代理/占位 |
-| `sqldb/protodbdriver/driver_go127.go` | `//go:build go1.27` | Go >= 1.27：实现完整 `RowsColumnScanner` + `ScanColumn` 路径 |
-| `crud/dbscan_go126.go` | `//go:build !go1.27` | Go < 1.27：使用 Phase 1 优化后的标准 `rows.Scan` 路径 |
-| `crud/dbscan_go127.go` | `//go:build go1.27` | Go >= 1.27：优先使用驱动包装的 `ScanColumn` 路径 |
-
-#### 3.2 Go < 1.27 的折中路径
-
-在 Go 1.23–1.26 上，Phase 1 的优化仍然有效：
-- `DbScan2ProtoMsg` 使用实现 `sql.Scanner` 的 `protoFieldReceiver`，减少中间转换和解包分配。
-- `setProtoMsgFieldDirect` 仍然通过 `protoreflect` API 直接写入字段，消除 `pdbutil.SetField` 反射。
-- 但**无法绕过 `driver.Value` 中间层**，因为 `database/sql` 标准库仍然只能走 `rows.Scan(dest...)` → `driver.Value` → 转换的老路。
-
-因此 Phase 1 的所有收益在旧版本上都能拿到；Phase 2 的驱动层零拷贝只能等 Go 1.27 才启用。
-
-#### 3.3 兼容性保证
-
-- **Phase 1 零侵入**：`DbScan2ProtoMsg`、`DbScan2ProtoMsgx2`、`SetProtoMsgField` 保留原有签名，内部根据条件选择最优路径。所有现有测试无需修改。
-- **Phase 2 可选**：用户可选择使用 `protodbdriver` 包装驱动获得最大性能，也可继续使用标准驱动走 Phase 1 优化路径。
-- **驱动回退**：`ScanColumn` 对不认识的 `dest` 类型返回 `driver.ErrSkip`，标准库自动回退到传统 `rows.Scan`。
-
-#### 3.4 测试策略
-
-1. 为 `setProtoMsgFieldDirect` 函数族编写单元测试，覆盖所有标量类型（bool/int32/int64/uint32/uint64/float32/float64/string/bytes/enum）。
-2. 为重构后的 `DbScan2ProtoMsg` 编写 mock `sql.Rows` 测试，验证 dest 类型分配正确。
-3. 为 `protodbdriver` 编写 mock driver 测试，验证 `ScanColumn` 的类型分发逻辑。
-4. 保持现有集成测试通过（使用 `pgx` 标准路径验证兼容性）。
-
----
-
-## 实施步骤
-
-| Step | 状态 | 任务 | 文件 | 说明 |
-|---|---|---|---|---|
-| 1 | 已完成 | 新增 `setProtoMsgFieldDirect` 函数族 | `crud/dbscan.go` | 覆盖所有标量类型的直接设置 |
-| 2 | 已完成 | 重构 `DbScan2ProtoMsg` | `crud/dbscan.go` | `protoFieldReceiver` + 直接字段设置 |
-| 3 | 已完成 | 优化 `DbScan2ProtoMsgx2` | `crud/dbscan.go` | 复用类型感知 scan dest |
-| 4 | 已完成 | Benchmark 验证 | `crud/dbscan_bench_test.go` | 对比预分配 dest 与直接接收器 |
-| 5 | TODO | 验证 Go 1.27 API 与驱动能力 | 调研/原型 | 确认接口、回退语义和可测收益 |
-| 6 | TODO | 创建 `sqldb/protodbdriver` 包 | `sqldb/protodbdriver/driver.go` | 实现 `Driver` + `Conn` + `Rows` |
-| 7 | TODO | 实现驱动层列扫描 | `sqldb/protodbdriver/rows.go` | 对 `protoFieldReceiver` 做类型感知写入 |
-| 8 | TODO | 注册辅助函数 | `sqldb/protodbdriver/register.go` | `RegisterProtodbDriver` |
-| 9 | TODO | 编写测试和 benchmark | `sqldb/protodbdriver/*_test.go` | mock driver、兼容回退和性能对照 |
-| 10 | TODO | 接入文档 | `README.md` / `doc/` | 仅在实现稳定后说明接入方式 |
-
----
-
-## 实测效果
-
-`BenchmarkDbRowScannerScan` 使用相同的 `sqlmock` 数据对比预分配 scan dest 与 `protoFieldReceiver`，每次操作扫描 9 列、2 行。一次参考运行结果如下：
-
-| 路径 | ns/op | B/op | allocs/op |
+| 路径 | ms/op | B/op | allocs/op |
 |---|---:|---:|---:|
-| `PreallocatedDest` | 18,315 | 2,358 | 37 |
-| `ProtoFieldReceiver` | 15,234 | 2,217 | 26 |
+| SQLScannerText（原有实现） | 44.132 | 10,313,449 | 339,020 |
+| NativeBinary（本次实现） | 10.422 | 1,953,606 | 69,025 |
 
-运行命令：
+该场景耗时下降约 76%，分配内存下降约 81%，分配次数下降约 80%。
+这里比较的是完整的“二进制数组查询 + 原生扫描”优化与原有路径，
+不是把同一份二进制数据直接交给普通 sql.Scanner：pgx stdlib 不支持后者转字符串。
+
+原始五次输出见 [benchmarks/rows-scan-go1.27.1.txt](benchmarks/rows-scan-go1.27.1.txt)。
+本机耗时波动明显（原有路径 41.74–53.03 ms，新路径 10.16–11.07 ms）；
+这组结果不能推广为所有查询、所有数组类型或动态消息都有相同比例的收益。
+
+复现：
 
 ```bash
-go test ./crud -run '^$' -bench '^BenchmarkDbRowScannerScan$' -benchmem
+# 设置指向测试 PostgreSQL 的 PROTODB_SCAN_TEST_DSN
+go test ./crud -run '^TestPGX' \
+  -bench '^BenchmarkPGXArrayRowsColumnScanner$' -benchmem -count=5 -benchtime=1s
+
+# 检查纯标量查询：优化选择器应保留原有标量接收器
+go test ./crud -run '^$' -bench '^BenchmarkPGXRowsColumnScanner$' -benchmem
 ```
 
-具体耗时受机器和运行环境影响；这组 benchmark 主要用于持续比较两条相同扫描路径的分配数和相对性能。Phase 1 不承诺零分配，复杂数组和消息字段仍需文本或 JSON 解析。
+## 验证
 
-> **注**：Phase 2/3 保留为 TODO，不属于当前实现或性能承诺。现阶段仅 Phase 1 已落地并由测试和 benchmark 覆盖。
+- `go test ./... -race`，包含真实 PostgreSQL 集成测试；
+- `go vet ./...`；
+- Go 1.25.0 和 Go 1.26.0 下的 `go test ./...`；
+- 文本/二进制 codec、整数范围、NULL/空值、缓冲区所有权、消息切换、
+  JSON/类型不匹配/未知列回退、成对扫描、事务和预编译查询；
+- 生成消息的字段编号定位，以及动态消息的通用数组接收。
+
+不设置 `PROTODB_SCAN_TEST_DSN` 时，真实 PostgreSQL 测试和 benchmark 会明确跳过，
+codec 与生成消息接收器单元测试仍会运行。

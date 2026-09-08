@@ -16,6 +16,10 @@
 * **细粒度权限控制**: 灵活的 Hook 机制，允许您精确控制每个表、每个操作的访问权限。
 * **丰富的字段映射**: 支持 JSONB, UUID, IP Address, Timestamp 等高级数据类型。
 
+Go 1.27 用户使用 pgx v5.11.0 时，已知 pgx 连接上的 CRUD 和查询支持通过
+`RowsColumnScanner` 原生扫描 PostgreSQL 数组。旧版 Go 和其他驱动保留兼容路径。
+接入限制和实测 benchmark 见 [Rows Scan 性能优化](protodb-rows-scan-optimization.md)。
+
 ---
 
 ## 🚀 快速开始

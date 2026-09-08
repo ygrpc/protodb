@@ -82,7 +82,7 @@ func dbInsertReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbsche
 		return nil, err
 	}
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := QueryProtoRows(db, sqlStr, sqlVals...)
 	if err != nil {
 		return nil, err
 	}
@@ -96,7 +96,7 @@ func dbInsertReturn(db sqldb.DB, msg proto.Message, msgLastFieldNo int32, dbsche
 
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
 
-	err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
+	err = dbScan2ProtoMsgForDB(db, rows, returnMsg, nil, msgFieldsMap)
 
 	return returnMsg, err
 }

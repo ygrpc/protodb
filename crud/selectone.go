@@ -51,7 +51,7 @@ func dbSelectOne(db sqldb.DB, msg proto.Message, keyColumns []string, resultColu
 		return nil, err
 	}
 
-	rows, err := db.Query(sqlStr, sqlVals...)
+	rows, err := QueryProtoRows(db, sqlStr, sqlVals...)
 	if err != nil {
 		return nil, err
 	}
@@ -65,10 +65,10 @@ func dbSelectOne(db sqldb.DB, msg proto.Message, keyColumns []string, resultColu
 
 	if len(resultColumns) == 0 || (len(resultColumns) == 1 && resultColumns[0] == "*") {
 		msgFieldsMap := pdbutil.BuildMsgFieldsMap(nil, msgDesc.Fields(), true)
-		err = DbScan2ProtoMsg(rows, returnMsg, nil, msgFieldsMap)
+		err = dbScan2ProtoMsgForDB(db, rows, returnMsg, nil, msgFieldsMap)
 	} else {
 		msgFieldsMap := pdbutil.BuildMsgFieldsMap(resultColumns, msgDesc.Fields(), true)
-		err = DbScan2ProtoMsg(rows, returnMsg, resultColumns, msgFieldsMap)
+		err = dbScan2ProtoMsgForDB(db, rows, returnMsg, resultColumns, msgFieldsMap)
 	}
 
 	return returnMsg, err

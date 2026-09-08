@@ -102,9 +102,23 @@ func (n *nullBytes) Scan(src any) error {
 type protoFieldReceiver struct {
 	msg proto.Message
 	fd  protoreflect.FieldDescriptor
+	// Pair scans historically validate through sql.Null* before assignment.
+	validationDest any
 }
 
+func (r *protoFieldReceiver) bind(msg proto.Message) { r.msg = msg }
+
 func (r *protoFieldReceiver) Scan(src any) error {
+	if r.validationDest != nil {
+		if scanner, ok := r.validationDest.(sql.Scanner); ok {
+			if err := scanner.Scan(src); err != nil {
+				return err
+			}
+		} else {
+			*r.validationDest.(*any) = src
+		}
+		src = unwrapScanVal(r.validationDest)
+	}
 	err := setProtoMsgFieldDirect(r.msg, r.fd, src)
 	if err == nil {
 		return nil
@@ -283,8 +297,9 @@ func setProtoMsgFieldMessage(msg proto.Message, fd protoreflect.FieldDescriptor,
 }
 
 type DbRowScanner struct {
-	rowVals []any
-	msg     proto.Message
+	rowVals   []any
+	msg       proto.Message
+	finishers []func() error
 }
 
 type DbRowPairScanner struct {
@@ -324,8 +339,8 @@ func (s *DbRowScanner) Scan(rows *sql.Rows, msg proto.Message) error {
 	if msg != s.msg {
 		s.msg = msg
 		for i := range s.rowVals {
-			if r, ok := s.rowVals[i].(*protoFieldReceiver); ok {
-				r.msg = msg
+			if r, ok := s.rowVals[i].(interface{ bind(proto.Message) }); ok {
+				r.bind(msg)
 			}
 		}
 	}
@@ -333,6 +348,11 @@ func (s *DbRowScanner) Scan(rows *sql.Rows, msg proto.Message) error {
 	if err != nil {
 		fmt.Println("DbRowScanner Scan err:", err)
 		return err
+	}
+	for _, finish := range s.finishers {
+		if err := finish(); err != nil {
+			return err
+		}
 	}
 	return nil
 }

@@ -322,7 +322,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 	msgDesc := resultMsg.ProtoReflect().Descriptor()
 	msgFieldsMap := pdbutil.BuildMsgFieldsMap(fieldNames, msgDesc.Fields(), true)
 
-	rows, err := executor.Query(sqlStr, sqlVals...)
+	rows, err := crud.QueryProtoRowsContext(ctx, executor, sqlStr, sqlVals...)
 	if err != nil {
 		return sendErr(fmt.Errorf("query %s err: %w", req.QueryName, err))
 	}
@@ -346,7 +346,7 @@ func HandleQuery(ctx context.Context, meta http.Header, req *protodb.QueryReq, f
 		MsgBytes:    nil,
 		ResponseEnd: false,
 	}
-	rowScanner, err := crud.NewDbRowScanner(rows, resultMsg, fieldNames, msgFieldsMap)
+	rowScanner, err := crud.NewDbRowScannerForDB(executor, rows, resultMsg, fieldNames, msgFieldsMap)
 	if err != nil {
 		return sendErr(fmt.Errorf("create row scanner err: %w", err))
 	}
