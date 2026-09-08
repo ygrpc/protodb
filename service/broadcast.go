@@ -6,7 +6,7 @@ import (
 	"reflect"
 	"runtime/debug"
 
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
@@ -25,11 +25,11 @@ type TcrudBroadcaster struct {
 }
 
 type crudBroadcastEvent struct {
-	meta     http.Header
-	db       sqldb.DB
-	req      *protodb.CrudReq
-	reqMsg   proto.Message
-	respMsg  proto.Message
+	meta    http.Header
+	db      sqldb.DB
+	req     *protodb.CrudReq
+	reqMsg  proto.Message
+	respMsg proto.Message
 	// handlers is captured when the CRUD succeeds, before Commit can delay delivery.
 	handlers []TfnCrudBroadcastHandler
 }

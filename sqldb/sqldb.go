@@ -9,7 +9,7 @@ import (
 
 	"github.com/ygrpc/protodb/protosql"
 
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 type TDBDialect int

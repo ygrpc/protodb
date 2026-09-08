@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/puzpuzpuz/xsync/v3"
+	"github.com/puzpuzpuz/xsync/v4"
 	"github.com/ygrpc/protodb"
 	"github.com/ygrpc/protodb/sqldb"
 	"google.golang.org/protobuf/proto"
