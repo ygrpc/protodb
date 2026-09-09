@@ -29,7 +29,7 @@ type TDBDialectCacheItem struct {
 	CacheTime   time.Time
 }
 
-var dbDialectCache *xsync.MapOf[*sql.DB, TDBDialectCacheItem] = xsync.NewMapOf[*sql.DB, TDBDialectCacheItem]()
+var dbDialectCache *xsync.Map[*sql.DB, TDBDialectCacheItem] = xsync.NewMap[*sql.DB, TDBDialectCacheItem]()
 
 // Placeholder get placeholder of db dialect
 func (this TDBDialect) Placeholder() protosql.SQLPlaceholder {

@@ -19,9 +19,9 @@ type TfnCrudBroadcastHandler func(meta http.Header, db sqldb.DB, req *protodb.Cr
 
 type TcrudBroadcaster struct {
 	// msgName => fns
-	fnCrudBroadcastMap *xsync.MapOf[string, []TfnCrudBroadcastHandler]
+	fnCrudBroadcastMap *xsync.Map[string, []TfnCrudBroadcastHandler]
 	// crudCode => {msgName => fns}
-	fnCrudBroadcastByCodeMap *xsync.MapOf[protodb.CrudReqCode, *xsync.MapOf[string, []TfnCrudBroadcastHandler]]
+	fnCrudBroadcastByCodeMap *xsync.Map[protodb.CrudReqCode, *xsync.Map[string, []TfnCrudBroadcastHandler]]
 }
 
 type crudBroadcastEvent struct {
@@ -35,15 +35,15 @@ type crudBroadcastEvent struct {
 }
 
 var GlobalCrudBroadcaster *TcrudBroadcaster = &TcrudBroadcaster{
-	fnCrudBroadcastMap:       xsync.NewMapOf[string, []TfnCrudBroadcastHandler](),
-	fnCrudBroadcastByCodeMap: xsync.NewMapOf[protodb.CrudReqCode, *xsync.MapOf[string, []TfnCrudBroadcastHandler]](),
+	fnCrudBroadcastMap:       xsync.NewMap[string, []TfnCrudBroadcastHandler](),
+	fnCrudBroadcastByCodeMap: xsync.NewMap[protodb.CrudReqCode, *xsync.Map[string, []TfnCrudBroadcastHandler]](),
 }
 
 // RegisterBroadcastByCode registers a handler for one table and CRUD code.
 func (this *TcrudBroadcaster) RegisterBroadcastByCode(msgName string, crudCode protodb.CrudReqCode, fnCrudBroadcastHandler TfnCrudBroadcastHandler) {
 	msgFnMaps, ok := this.fnCrudBroadcastByCodeMap.Load(crudCode)
 	if !ok {
-		msgFnMaps = xsync.NewMapOf[string, []TfnCrudBroadcastHandler]()
+		msgFnMaps = xsync.NewMap[string, []TfnCrudBroadcastHandler]()
 		this.fnCrudBroadcastByCodeMap.Store(crudCode, msgFnMaps)
 	}
 

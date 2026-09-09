@@ -36,9 +36,9 @@ type msgFieldInfo struct {
 	lower string
 }
 
-var pdbCache = xsync.NewMapOf[descriptorCacheKey, pdbCacheItem]()
-var pdbmCache = xsync.NewMapOf[descriptorCacheKey, pdbmCacheItem]()
-var msgFieldInfoCache = xsync.NewMapOf[descriptorCacheKey, []msgFieldInfo]()
+var pdbCache = xsync.NewMap[descriptorCacheKey, pdbCacheItem]()
+var pdbmCache = xsync.NewMap[descriptorCacheKey, pdbmCacheItem]()
+var msgFieldInfoCache = xsync.NewMap[descriptorCacheKey, []msgFieldInfo]()
 
 func GetPDB(fieldDescriptor protoreflect.FieldDescriptor) (pdb *protodb.PDBField, found bool) {
 	cacheKey := makeDescriptorCacheKey(fieldDescriptor)

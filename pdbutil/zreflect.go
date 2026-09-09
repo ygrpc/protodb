@@ -7,16 +7,16 @@ import (
 	"reflect"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 	"unsafe"
 
 	"github.com/google/uuid"
+	"github.com/puzpuzpuz/xsync/v4"
 )
 
 // fieldIndexCache avoids repeating reflect's name lookup for every row/field.
 // Struct types are immutable, so cached indexes remain valid for the process lifetime.
-var fieldIndexCache sync.Map // map[fieldLookupKey][]int
+var fieldIndexCache = xsync.NewMap[fieldLookupKey, []int]()
 
 type fieldLookupKey struct {
 	t    reflect.Type
@@ -27,7 +27,7 @@ func cachedField(v reflect.Value, name string) reflect.Value {
 	t := v.Type()
 	key := fieldLookupKey{t: t, name: name}
 	if index, ok := fieldIndexCache.Load(key); ok {
-		return v.FieldByIndex(index.([]int))
+		return v.FieldByIndex(index)
 	}
 	field, ok := t.FieldByName(name)
 	if !ok {

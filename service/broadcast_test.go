@@ -14,8 +14,8 @@ import (
 
 func newTestBroadcaster() *TcrudBroadcaster {
 	return &TcrudBroadcaster{
-		fnCrudBroadcastMap:       xsync.NewMapOf[string, []TfnCrudBroadcastHandler](),
-		fnCrudBroadcastByCodeMap: xsync.NewMapOf[protodb.CrudReqCode, *xsync.MapOf[string, []TfnCrudBroadcastHandler]](),
+		fnCrudBroadcastMap:       xsync.NewMap[string, []TfnCrudBroadcastHandler](),
+		fnCrudBroadcastByCodeMap: xsync.NewMap[protodb.CrudReqCode, *xsync.Map[string, []TfnCrudBroadcastHandler]](),
 	}
 }
 

@@ -18,7 +18,7 @@ type TpgVersion struct {
 var emptyPgVersion = TpgVersion{}
 var errPgVersionNotFound = errors.New("pg version not found")
 
-var pgversionMap = xsync.NewMapOf[unsafe.Pointer, TpgVersion]()
+var pgversionMap = xsync.NewMap[unsafe.Pointer, TpgVersion]()
 
 // GetPgVersion gets the PostgreSQL version from cache or database.
 // db can be *sql.DB, *sql.Tx or sqldb.DB for transaction support.
